@@ -30,6 +30,7 @@ def cc_toolchain_config(
         host_os,
         target_arch,
         target_os,
+        use_libcpp,
         toolchain_path_prefix,
         tools_path_prefix,
         cc_wrapper_prefix,
@@ -152,7 +153,7 @@ def cc_toolchain_config(
     # Flags related to C++ standard.
     # The linker has no way of knowing if there are C++ objects; so we
     # always link C++ libraries.
-    if not is_xcompile:
+    if use_libcpp:
         cxx_flags = [
             "-std=c++17",
             "-stdlib=libc++",

@@ -99,6 +99,10 @@ _llvm_config_attrs.update({
     "_cc_toolchain_config_bzl": attr.label(
         default = "//toolchain:cc_toolchain_config.bzl",
     ),
+    "use_libcpp": attr.bool(
+        default = True,
+        doc = "Should libc++ be used? If false libstdc++ will be used.",
+    ),
 })
 
 llvm = repository_rule(
