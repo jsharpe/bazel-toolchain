@@ -28,6 +28,8 @@ filegroup(
         "bin/clang",
         "bin/clang++",
         "bin/clang-cpp",
+        "bin/clang-offload-bundler",
+        "bin/clang-offload-wrapper",
     ],
 )
 
@@ -57,6 +59,11 @@ filegroup(
         [
             "lib/lib*.a",
             "lib/clang/*/lib/**/*.a",
+            "lib/libomp.so",
+            "lib/libomptarget.so*",
+            "lib/libgomp.so",
+            "lib/libiomp5.so",
+            "lib/*.bc",
         ],
         exclude = [
             "lib/libLLVM*.a",
