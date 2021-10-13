@@ -13,7 +13,7 @@
 # limitations under the License.
 
 load(
-    "@bazel_tools//tools/cpp:unix_cc_toolchain_config.bzl",
+    "@rules_cc//cc/private/toolchain:unix_cc_toolchain_config.bzl",
     unix_cc_toolchain_config = "cc_toolchain_config",
 )
 load(
@@ -300,5 +300,4 @@ def cc_toolchain_config(
         coverage_compile_flags = coverage_compile_flags,
         coverage_link_flags = coverage_link_flags,
         supports_start_end_lib = supports_start_end_lib,
-        builtin_sysroot = sysroot_path,
     )
