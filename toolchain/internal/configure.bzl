@@ -277,6 +277,7 @@ filegroup(
         "{toolchain_root}:clang",
         "{toolchain_root}:include",
         ":sysroot-components-{suffix}",
+        "@mpi//:compiler_deps",
     ],
 )
 
