@@ -41,7 +41,7 @@ filegroup(
 filegroup(
     name = "include",
     srcs = glob([
-        "include/c++/**",
+        "include/**/c++/**",
         "lib/clang/*/include/**",
     ]),
 )
@@ -55,7 +55,7 @@ filegroup(
     name = "lib",
     srcs = glob(
         [
-            "lib/lib*.a",
+            "lib/**/lib*.a",
             "lib/clang/*/lib/**/*.a",
             "lib/libomp.so",
             "lib/libomptarget.so*",
@@ -72,7 +72,6 @@ filegroup(
             "lib/lib*.dylib",
             "lib/clang/*/lib/**/*.dylib",
         ],
-        allow_empty = True,
     ),
 )
 

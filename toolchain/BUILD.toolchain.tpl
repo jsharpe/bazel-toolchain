@@ -25,9 +25,36 @@ filegroup(
     srcs = [],
 )
 
+# Tools symlinked through this repo. This target is for internal use in the toolchain only.
 filegroup(
-    name = "cc-wrapper",
-    srcs = ["bin/cc_wrapper.sh"],
+    name = "internal-use-symlinked-tools",
+    srcs = [
+%{symlinked_tools}
+    ],
+)
+
+# Tools wrapped through this repo. This target is for internal use in the toolchain only.
+filegroup(
+    name = "internal-use-wrapped-tools",
+    srcs = [
+        "bin/cc_wrapper.sh",
+        "bin/host_libtool_wrapper.sh",
+    ],
+)
+
+cc_import(
+    name = "omp",
+    shared_library = "%{llvm_repo_package}:lib/libomp.%{host_dl_ext}",
+)
+
+alias(
+    name = "clang-format",
+    actual = "%{llvm_repo_package}:bin/clang-format",
+)
+
+alias(
+    name = "llvm-cov",
+    actual = "%{llvm_repo_package}:bin/llvm-cov",
 )
 
 %{cc_toolchains}

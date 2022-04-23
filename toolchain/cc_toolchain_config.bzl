@@ -19,6 +19,8 @@ load(
 load(
     "//toolchain/internal:common.bzl",
     _check_os_arch_keys = "check_os_arch_keys",
+    _host_tool_features = "host_tool_features",
+    _host_tools = "host_tools",
     _os_arch_pair = "os_arch_pair",
 )
 
@@ -32,10 +34,10 @@ def cc_toolchain_config(
         target_os,
         toolchain_path_prefix,
         tools_path_prefix,
-        cc_wrapper_prefix,
-        sysroot_path,
-        additional_include_dirs,
-        llvm_version):
+        wrapper_bin_prefix,
+        compiler_configuration,
+        llvm_version,
+        host_tools_info = {}):
     host_os_arch_key = _os_arch_pair(host_os, host_arch)
     target_os_arch_key = _os_arch_pair(target_os, target_arch)
     _check_os_arch_keys([host_os_arch_key, target_os_arch_key])
@@ -62,15 +64,6 @@ def cc_toolchain_config(
             "darwin_x86_64",
             "darwin_x86_64",
         ),
-        "linux-x86_64": (
-            "clang-x86_64-linux",
-            "x86_64-unknown-linux-gnu",
-            "k8",
-            "glibc_unknown",
-            "clang",
-            "clang",
-            "glibc_unknown",
-        ),
         "linux-aarch64": (
             "clang-aarch64-linux",
             "aarch64-unknown-linux-gnu",
@@ -80,9 +73,20 @@ def cc_toolchain_config(
             "clang",
             "glibc_unknown",
         ),
+        "linux-x86_64": (
+            "clang-x86_64-linux",
+            "x86_64-unknown-linux-gnu",
+            "k8",
+            "glibc_unknown",
+            "clang",
+            "clang",
+            "glibc_unknown",
+        ),
     }[target_os_arch_key]
 
-    # Unfiltered compiler flags:
+    # Unfiltered compiler flags; these are placed at the end of the command
+    # line, so take precendence over any user supplied flags through --copts or
+    # such.
     unfiltered_compile_flags = [
         # Do not resolve our symlinked resource prefixes to real paths.
         "-no-canonical-prefixes",
@@ -126,11 +130,15 @@ def cc_toolchain_config(
         "-lm",
         "-no-canonical-prefixes",
     ]
+
+    # Similar to link_flags, but placed later in the command line such that
+    # unused symbols are not stripped.
     link_libs = []
 
     # Linker flags:
     if host_os == "darwin" and not is_xcompile:
         # lld is experimental for Mach-O, so we use the native ld64 linker.
+        # TODO: How do we cross-compile from Linux to Darwin?
         use_lld = False
         link_flags.extend([
             "-headerpad_max_install_names",
@@ -152,23 +160,24 @@ def cc_toolchain_config(
     # Flags related to C++ standard.
     # The linker has no way of knowing if there are C++ objects; so we
     # always link C++ libraries.
-    if not is_xcompile:
+    cxx_standard = compiler_configuration["cxx_standard"]
+    stdlib = compiler_configuration["stdlib"]
+    if stdlib == "builtin-libc++" and is_xcompile:
+        stdlib = "stdc++"
+    if stdlib == "builtin-libc++":
         cxx_flags = [
-            "-std=c++17",
+            "-std=" + cxx_standard,
             "-stdlib=libc++",
         ]
         if use_lld:
             # For single-platform builds, we can statically link the bundled
             # libraries.
             link_flags.extend([
-                "-L{}lib".format(toolchain_path_prefix),
                 "-l:libc++.a",
                 "-l:libc++abi.a",
                 "-l:libunwind.a",
                 # Compiler runtime features.
                 "-rtlib=compiler-rt",
-            ])
-            link_libs.extend([
                 # To support libunwind.
                 "-lpthread",
                 "-ldl",
@@ -180,16 +189,35 @@ def cc_toolchain_config(
                 "-lc++",
                 "-lc++abi",
             ])
-    else:
+    elif stdlib == "libc++":
         cxx_flags = [
-            "-std=c++17",
+            "-std=" + cxx_standard,
+            "-stdlib=libc++",
+        ]
+
+        link_flags.extend([
+            "-l:c++.a",
+            "-l:c++abi.a",
+        ])
+    elif stdlib == "stdc++":
+        cxx_flags = [
+            "-std=" + cxx_standard,
             "-stdlib=libstdc++",
         ]
 
-        # For xcompile, we expect to pick up these libraries from the sysroot.
         link_flags.extend([
             "-l:libstdc++.a",
         ])
+    elif stdlib == "none":
+        cxx_flags = [
+            "-nostdlib",
+        ]
+
+        link_flags.extend([
+            "-nostdlib",
+        ])
+    else:
+        fail("Unknown value passed for stdlib: {stdlib}".format(stdlib = stdlib))
 
     opt_link_flags = ["-Wl,--gc-sections"] if target_os == "linux" else []
 
@@ -201,12 +229,16 @@ def cc_toolchain_config(
     ## doesn't seem to have a feature for this.
 
     # C++ built-in include directories:
-    cxx_builtin_include_directories = [
-        toolchain_path_prefix + "include/c++/v1",
-        toolchain_path_prefix + "lib/clang/{}/include".format(llvm_version),
-        toolchain_path_prefix + "lib64/clang/{}/include".format(llvm_version),
-    ]
+    cxx_builtin_include_directories = []
+    if toolchain_path_prefix.startswith("/"):
+        cxx_builtin_include_directories.extend([
+            toolchain_path_prefix + "include/c++/v1",
+            toolchain_path_prefix + "include/{}/c++/v1".format(target_system_name),
+            toolchain_path_prefix + "lib/clang/{}/include".format(llvm_version),
+            toolchain_path_prefix + "lib64/clang/{}/include".format(llvm_version),
+        ])
 
+    sysroot_path = compiler_configuration["sysroot_path"]
     sysroot_prefix = ""
     if sysroot_path:
         sysroot_prefix = "%sysroot%"
@@ -224,7 +256,7 @@ def cc_toolchain_config(
     else:
         fail("Unreachable")
 
-    cxx_builtin_include_directories.extend(additional_include_dirs)
+    cxx_builtin_include_directories.extend(compiler_configuration["additional_include_dirs"])
 
     ## NOTE: make variables are missing here; unix_cc_toolchain_config doesn't
     ## pass these to `create_cc_toolchain_config_info`.
@@ -233,20 +265,35 @@ def cc_toolchain_config(
     # `llvm-strip` was introduced in V7 (https://reviews.llvm.org/D46407):
     llvm_version = llvm_version.split(".")
     llvm_major_ver = int(llvm_version[0]) if len(llvm_version) else 0
-    strip_binary = (tools_path_prefix + "bin/llvm-strip") if llvm_major_ver >= 7 else "/usr/bin/strip"
+    strip_binary = (tools_path_prefix + "llvm-strip") if llvm_major_ver >= 7 else _host_tools.get_and_assert(host_tools_info, "strip")
 
+    # TODO: The command line formed on darwin does not work with llvm-ar.
+    ar_binary = tools_path_prefix + "llvm-ar"
+    if host_os == "darwin":
+        # Bazel uses arg files for longer commands; some old macOS `libtool`
+        # versions do not support this.
+        #
+        # In these cases we want to use `libtool_wrapper.sh` which translates
+        # the arg file back into command line arguments.
+        if not _host_tools.tool_supports(host_tools_info, "libtool", features = [_host_tool_features.SUPPORTS_ARG_FILE]):
+            ar_binary = wrapper_bin_prefix + "bin/host_libtool_wrapper.sh"
+        else:
+            ar_binary = host_tools_info["libtool"]["path"]
+
+    # The tool names come from [here](https://github.com/bazelbuild/bazel/blob/c7e58e6ce0a78fdaff2d716b4864a5ace8917626/src/main/java/com/google/devtools/build/lib/rules/cpp/CppConfiguration.java#L76-L90):
+    # NOTE: Ensure these are listed in toolchain_tools in toolchain/internal/common.bzl.
     tool_paths = {
-        # TODO: The command line formed on darwin does not work with llvm-ar.
-        "ar": tools_path_prefix + "bin/llvm-ar" if host_os != "darwin" else "/usr/bin/libtool",
-        "cpp": tools_path_prefix + "bin/clang-cpp",
-        "dwp": tools_path_prefix + "bin/llvm-dwp",
-        "gcc": cc_wrapper_prefix + "bin/cc_wrapper.sh",
-        "gcov": tools_path_prefix + "bin/llvm-profdata",
-        "ld": tools_path_prefix + "bin/ld.lld" if use_lld else "/usr/bin/ld",
-        "llvm-cov": tools_path_prefix + "bin/llvm-cov",
-        "nm": tools_path_prefix + "bin/llvm-nm",
-        "objcopy": tools_path_prefix + "bin/llvm-objcopy",
-        "objdump": tools_path_prefix + "bin/llvm-objdump",
+        "ar": ar_binary,
+        "cpp": tools_path_prefix + "clang-cpp",
+        "dwp": tools_path_prefix + "llvm-dwp",
+        "gcc": wrapper_bin_prefix + "bin/cc_wrapper.sh",
+        "gcov": tools_path_prefix + "llvm-profdata",
+        "ld": tools_path_prefix + "ld.lld" if use_lld else _host_tools.get_and_assert(host_tools_info, "ld"),
+        "llvm-cov": tools_path_prefix + "llvm-cov",
+        "llvm-profdata": tools_path_prefix + "llvm-profdata",
+        "nm": tools_path_prefix + "llvm-nm",
+        "objcopy": tools_path_prefix + "llvm-objcopy",
+        "objdump": tools_path_prefix + "llvm-objdump",
         "strip": strip_binary,
     }
 
@@ -257,6 +304,31 @@ def cc_toolchain_config(
     # after the above patch was merged, so we just set this to `True` when
     # `lld` is being used as the linker.
     supports_start_end_lib = use_lld
+
+    def fmt_flags(flags):
+        return [f.format(toolchain_path_prefix = toolchain_path_prefix) for f in flags]
+
+    # Replace flags with any user-provided overrides.
+    if compiler_configuration["compile_flags"] != None:
+        compile_flags = fmt_flags(compiler_configuration["compile_flags"])
+    if compiler_configuration["cxx_flags"] != None:
+        cxx_flags = fmt_flags(compiler_configuration["cxx_flags"])
+    if compiler_configuration["link_flags"] != None:
+        link_flags = fmt_flags(compiler_configuration["link_flags"])
+    if compiler_configuration["link_libs"] != None:
+        link_libs = fmt_flags(compiler_configuration["link_libs"])
+    if compiler_configuration["opt_compile_flags"] != None:
+        opt_compile_flags = fmt_flags(compiler_configuration["opt_compile_flags"])
+    if compiler_configuration["opt_link_flags"] != None:
+        opt_link_flags = fmt_flags(compiler_configuration["opt_link_flags"])
+    if compiler_configuration["dbg_compile_flags"] != None:
+        dbg_compile_flags = fmt_flags(compiler_configuration["dbg_compile_flags"])
+    if compiler_configuration["coverage_compile_flags"] != None:
+        coverage_compile_flags = fmt_flags(compiler_configuration["coverage_compile_flags"])
+    if compiler_configuration["coverage_link_flags"] != None:
+        coverage_link_flags = fmt_flags(compiler_configuration["coverage_link_flags"])
+    if compiler_configuration["unfiltered_compile_flags"] != None:
+        unfiltered_compile_flags = fmt_flags(compiler_configuration["unfiltered_compile_flags"])
 
     # Source: https://cs.opensource.google/bazel/bazel/+/master:tools/cpp/unix_cc_toolchain_config.bzl
     unix_cc_toolchain_config(

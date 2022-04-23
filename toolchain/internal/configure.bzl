@@ -17,18 +17,22 @@ load(
     _arch = "arch",
     _canonical_dir_path = "canonical_dir_path",
     _check_os_arch_keys = "check_os_arch_keys",
+    _host_tool_features = "host_tool_features",
+    _host_tools = "host_tools",
+    _list_to_string = "list_to_string",
     _os = "os",
     _os_arch_pair = "os_arch_pair",
     _os_bzl = "os_bzl",
+    _pkg_name_from_label = "pkg_name_from_label",
     _pkg_path_from_label = "pkg_path_from_label",
     _supported_targets = "SUPPORTED_TARGETS",
+    _toolchain_tools = "toolchain_tools",
 )
 load(
     "//toolchain/internal:sysroot.bzl",
     _default_sysroot_path = "default_sysroot_path",
     _sysroot_path = "sysroot_path",
 )
-load("@rules_cc//cc:defs.bzl", _cc_toolchain = "cc_toolchain")
 
 def _include_dirs_str(rctx, key):
     dirs = rctx.attr.cxx_builtin_include_directories.get(key)
@@ -67,18 +71,21 @@ def llvm_register_toolchains():
         llvm_repo_label = Label(toolchain_root + ":BUILD.bazel")  # Exact target does not matter.
         llvm_repo_path = _canonical_dir_path(str(rctx.path(llvm_repo_label).dirname))
         config_repo_path = _canonical_dir_path(str(rctx.path("")))
+        llvm_repo_label_prefix = llvm_repo_path
         toolchain_path_prefix = llvm_repo_path
-        tools_path_prefix = llvm_repo_path
-        cc_wrapper_prefix = config_repo_path
+        tools_path_prefix = llvm_repo_path + "bin/"
+        symlinked_tools_str = ""
+        wrapper_bin_prefix = config_repo_path
     else:
-        llvm_repo_path = _pkg_path_from_label(Label(toolchain_root + ":BUILD.bazel"))
+        llvm_repo_label = Label(toolchain_root + ":BUILD.bazel")  # Exact target does not matter.
+        llvm_repo_path = _pkg_path_from_label(llvm_repo_label)
         config_repo_path = "external/%s/" % rctx.name
 
         # tools can only be defined in a subdirectory of config_repo_path,
         # because their paths are relative to the package defining
         # cc_toolchain, and cannot contain '..'.
         # https://github.com/bazelbuild/bazel/issues/7746.  To work around
-        # this, we symlink the llvm repo under the package so all tools (except
+        # this, we symlink the needed tools under the package so that they (except
         # clang) can be called with normalized relative paths. For clang
         # however, using a path with symlinks interferes with the header file
         # inclusion validation checks, because clang frontend will infer the
@@ -87,10 +94,13 @@ def llvm_register_toolchains():
         # validation check. So we always use a cc_wrapper (which is called
         # through a normalized relative path), and then call clang with the not
         # symlinked path from the wrapper.
-        rctx.symlink("../../" + llvm_repo_path, "llvm")
+        tools_path_prefix = "bin/"
+        for tool_name in _toolchain_tools:
+            rctx.symlink("../../" + llvm_repo_path + "/bin/" + tool_name, tools_path_prefix + tool_name)
+        symlinked_tools_str = "\n".join([" " * 8 + "\"" + tools_path_prefix + name + "\"," for name in _toolchain_tools])
+        llvm_repo_label_prefix = toolchain_root + ":"
         toolchain_path_prefix = llvm_repo_path
-        tools_path_prefix = "llvm/"
-        cc_wrapper_prefix = ""
+        wrapper_bin_prefix = ""
 
     default_sysroot_path = _default_sysroot_path(rctx, os)
 
@@ -98,19 +108,46 @@ def llvm_register_toolchains():
     toolchain_info = struct(
         os = os,
         arch = arch,
-        toolchain_root = toolchain_root,
+        llvm_repo_label_prefix = llvm_repo_label_prefix,
         toolchain_path_prefix = toolchain_path_prefix,
         tools_path_prefix = tools_path_prefix,
-        cc_wrapper_prefix = cc_wrapper_prefix,
-        additional_include_dirs_dict = rctx.attr.cxx_builtin_include_directories,
+        wrapper_bin_prefix = wrapper_bin_prefix,
         sysroot_dict = rctx.attr.sysroot,
         default_sysroot_path = default_sysroot_path,
+        additional_include_dirs_dict = rctx.attr.cxx_builtin_include_directories,
+        stdlib_dict = rctx.attr.stdlib,
+        cxx_standard_dict = rctx.attr.cxx_standard,
+        compile_flags_dict = rctx.attr.compile_flags,
+        cxx_flags_dict = rctx.attr.cxx_flags,
+        link_flags_dict = rctx.attr.link_flags,
+        link_libs_dict = rctx.attr.link_libs,
+        opt_compile_flags_dict = rctx.attr.opt_compile_flags,
+        opt_link_flags_dict = rctx.attr.opt_link_flags,
+        dbg_compile_flags_dict = rctx.attr.dbg_compile_flags,
+        coverage_compile_flags_dict = rctx.attr.coverage_compile_flags,
+        coverage_link_flags_dict = rctx.attr.coverage_link_flags,
+        unfiltered_compile_flags_dict = rctx.attr.unfiltered_compile_flags,
         llvm_version = rctx.attr.llvm_version,
     )
+    host_dl_ext = "dylib" if os == "darwin" else "so"
+    host_tools_info = dict([
+        pair
+        for (key, tool_path, features) in [
+            # This is used for macOS hosts:
+            ("libtool", "/usr/bin/libtool", [_host_tool_features.SUPPORTS_ARG_FILE]),
+            # This is used with old (pre 7) LLVM versions:
+            ("strip", "/usr/bin/strip", []),
+            # This is used when lld doesn't support the target platform (i.e.
+            # Mach-O for macOS):
+            ("ld", "/usr/bin/ld", []),
+        ]
+        for pair in _host_tools.get_tool_info(rctx, tool_path, features, key).items()
+    ])
     cc_toolchains_str, toolchain_labels_str = _cc_toolchains_str(
         workspace_name,
         toolchain_info,
         use_absolute_paths,
+        host_tools_info,
     )
 
     # Convenience macro to register all generated toolchains.
@@ -127,12 +164,15 @@ def llvm_register_toolchains():
         "BUILD.bazel",
         Label("//toolchain:BUILD.toolchain.tpl"),
         {
-            "%{cc_toolchains}": cc_toolchains_str,
             "%{cc_toolchain_config_bzl}": str(rctx.attr._cc_toolchain_config_bzl),
+            "%{cc_toolchains}": cc_toolchains_str,
+            "%{symlinked_tools}": symlinked_tools_str,
+            "%{llvm_repo_package}": _pkg_name_from_label(llvm_repo_label),
+            "%{host_dl_ext}": host_dl_ext,
         },
     )
 
-    # CC wrapper script; see comments near the definition of cc_wrapper_prefix.
+    # CC wrapper script; see comments near the definition of `wrapper_bin_prefix`.
     if os == "darwin":
         cc_wrapper_tpl = "//toolchain:osx_cc_wrapper.sh.tpl"
     else:
@@ -145,7 +185,20 @@ def llvm_register_toolchains():
         },
     )
 
-def _cc_toolchains_str(workspace_name, toolchain_info, use_absolute_paths):
+    # libtool wrapper; used if the host libtool doesn't support arg files:
+    rctx.template(
+        "bin/host_libtool_wrapper.sh",
+        Label("//toolchain:host_libtool_wrapper.sh.tpl"),
+        {
+            "%{libtool_path}": "/usr/bin/libtool",
+        },
+    )
+
+def _cc_toolchains_str(
+        workspace_name,
+        toolchain_info,
+        use_absolute_paths,
+        host_tools_info):
     # Since all the toolchains rely on downloading the right LLVM toolchain for
     # the host architecture, we don't need to explicitly specify
     # `exec_compatible_with` attribute. If the host and execution platform are
@@ -169,6 +222,7 @@ def _cc_toolchains_str(workspace_name, toolchain_info, use_absolute_paths):
             target_arch,
             toolchain_info,
             use_absolute_paths,
+            host_tools_info,
         )
         if cc_toolchain_str:
             cc_toolchains_str = cc_toolchains_str + cc_toolchain_str
@@ -184,7 +238,8 @@ def _cc_toolchain_str(
         target_os,
         target_arch,
         toolchain_info,
-        use_absolute_paths):
+        use_absolute_paths,
+        host_tools_info):
     host_os = toolchain_info.os
     host_arch = toolchain_info.arch
 
@@ -204,17 +259,15 @@ def _cc_toolchain_str(
             # We are trying to cross-compile without a sysroot, let's bail.
             # TODO: Are there situations where we can continue?
             return ""
-
-    extra_files_str = ", \":llvm\", \":cc-wrapper\""
-
-    additional_include_dirs = toolchain_info.additional_include_dirs_dict.get(_os_arch_pair(target_os, target_arch))
-    additional_include_dirs_str = "[]"
-    if additional_include_dirs:
-        additional_include_dirs_str = "[{}]".format(
-            ", ".join(["\"{}\"".format(d) for d in additional_include_dirs]),
-        )
-
     sysroot_label_str = "\"%s\"" % str(sysroot) if sysroot else ""
+
+    extra_files_str = ", \":internal-use-symlinked-tools\", \":internal-use-wrapped-tools\""
+
+    target_pair = _os_arch_pair(target_os, target_arch)
+
+    # `struct` isn't allowed in `BUILD` files so we JSON encode + decode to turn
+    # them into `dict`s.
+    host_tools_info = json.decode(json.encode(host_tools_info))
 
     template = """
 # CC toolchain for cc-clang-{suffix}.
@@ -227,10 +280,25 @@ cc_toolchain_config(
     target_os = "{target_os}",
     toolchain_path_prefix = "{toolchain_path_prefix}",
     tools_path_prefix = "{tools_path_prefix}",
-    cc_wrapper_prefix = "{cc_wrapper_prefix}",
-    sysroot_path = "{sysroot_path}",
-    additional_include_dirs = {additional_include_dirs_str},
+    wrapper_bin_prefix = "{wrapper_bin_prefix}",
+    compiler_configuration = {{
+      "additional_include_dirs": {additional_include_dirs},
+      "sysroot_path": "{sysroot_path}",
+      "stdlib": "{stdlib}",
+      "cxx_standard": "{cxx_standard}",
+      "compile_flags": {compile_flags},
+      "cxx_flags": {cxx_flags},
+      "link_flags": {link_flags},
+      "link_libs": {link_libs},
+      "opt_compile_flags": {opt_compile_flags},
+      "opt_link_flags": {opt_link_flags},
+      "dbg_compile_flags": {dbg_compile_flags},
+      "coverage_compile_flags": {coverage_compile_flags},
+      "coverage_link_flags": {coverage_link_flags},
+      "unfiltered_compile_flags": {unfiltered_compile_flags},
+    }},
     llvm_version = "{llvm_version}",
+    host_tools_info = {host_tools_info},
 )
 
 toolchain(
@@ -271,8 +339,8 @@ filegroup(
 filegroup(
     name = "compiler-components-{suffix}",
     srcs = [
-        "{toolchain_root}:clang",
-        "{toolchain_root}:include",
+        "{llvm_repo_label_prefix}clang",
+        "{llvm_repo_label_prefix}include",
         ":sysroot-components-{suffix}",
         "@mpi//:compiler_deps",
     ],
@@ -281,10 +349,10 @@ filegroup(
 filegroup(
     name = "linker-components-{suffix}",
     srcs = [
-        "{toolchain_root}:clang",
-        "{toolchain_root}:ld",
-        "{toolchain_root}:ar",
-        "{toolchain_root}:lib",
+        "{llvm_repo_label_prefix}clang",
+        "{llvm_repo_label_prefix}ld",
+        "{llvm_repo_label_prefix}ar",
+        "{llvm_repo_label_prefix}lib",
         ":sysroot-components-{suffix}",
     ],
 )
@@ -292,20 +360,20 @@ filegroup(
 filegroup(
     name = "all-components-{suffix}",
     srcs = [
-        "{toolchain_root}:bin",
+        "{llvm_repo_label_prefix}bin",
         ":compiler-components-{suffix}",
         ":linker-components-{suffix}",
     ],
 )
 
 filegroup(name = "all-files-{suffix}", srcs = [":all-components-{suffix}"{extra_files_str}])
-filegroup(name = "archiver-files-{suffix}", srcs = ["{toolchain_root}:ar"{extra_files_str}])
-filegroup(name = "assembler-files-{suffix}", srcs = ["{toolchain_root}:as"{extra_files_str}])
+filegroup(name = "archiver-files-{suffix}", srcs = ["{llvm_repo_label_prefix}ar"{extra_files_str}])
+filegroup(name = "assembler-files-{suffix}", srcs = ["{llvm_repo_label_prefix}as"{extra_files_str}])
 filegroup(name = "compiler-files-{suffix}", srcs = [":compiler-components-{suffix}"{extra_files_str}])
-filegroup(name = "dwp-files-{suffix}", srcs = ["{toolchain_root}:dwp"{extra_files_str}])
+filegroup(name = "dwp-files-{suffix}", srcs = ["{llvm_repo_label_prefix}dwp"{extra_files_str}])
 filegroup(name = "linker-files-{suffix}", srcs = [":linker-components-{suffix}"{extra_files_str}])
-filegroup(name = "objcopy-files-{suffix}", srcs = ["{toolchain_root}:objcopy"{extra_files_str}])
-filegroup(name = "strip-files-{suffix}", srcs = ["{toolchain_root}:strip"{extra_files_str}])
+filegroup(name = "objcopy-files-{suffix}", srcs = ["{llvm_repo_label_prefix}objcopy"{extra_files_str}])
+filegroup(name = "strip-files-{suffix}", srcs = ["{llvm_repo_label_prefix}strip"{extra_files_str}])
 
 cc_toolchain(
     name = "cc-clang-{suffix}",
@@ -321,6 +389,10 @@ cc_toolchain(
 )
 """
 
+    def dict_value(d, default = None):
+        # Get a value from the dict for the target pair, falling back to an empty key, if present.
+        return d.get(target_pair, d.get("", default))
+
     return template.format(
         suffix = suffix,
         target_os = target_os,
@@ -329,13 +401,26 @@ cc_toolchain(
         host_arch = host_arch,
         target_os_bzl = target_os_bzl,
         host_os_bzl = host_os_bzl,
-        toolchain_root = toolchain_info.toolchain_root,
+        llvm_repo_label_prefix = toolchain_info.llvm_repo_label_prefix,
         toolchain_path_prefix = toolchain_info.toolchain_path_prefix,
         tools_path_prefix = toolchain_info.tools_path_prefix,
-        cc_wrapper_prefix = toolchain_info.cc_wrapper_prefix,
-        additional_include_dirs_str = additional_include_dirs_str,
+        wrapper_bin_prefix = toolchain_info.wrapper_bin_prefix,
         sysroot_label_str = sysroot_label_str,
         sysroot_path = sysroot_path,
+        additional_include_dirs = _list_to_string(toolchain_info.additional_include_dirs_dict.get(target_pair, [])),
+        stdlib = dict_value(toolchain_info.stdlib_dict, "builtin-libc++"),
+        cxx_standard = dict_value(toolchain_info.cxx_standard_dict, "c++17"),
+        compile_flags = _list_to_string(dict_value(toolchain_info.compile_flags_dict)),
+        cxx_flags = _list_to_string(dict_value(toolchain_info.cxx_flags_dict)),
+        link_flags = _list_to_string(dict_value(toolchain_info.link_flags_dict)),
+        link_libs = _list_to_string(dict_value(toolchain_info.link_libs_dict)),
+        opt_compile_flags = _list_to_string(dict_value(toolchain_info.opt_compile_flags_dict)),
+        opt_link_flags = _list_to_string(dict_value(toolchain_info.opt_link_flags_dict)),
+        dbg_compile_flags = _list_to_string(dict_value(toolchain_info.dbg_compile_flags_dict)),
+        coverage_compile_flags = _list_to_string(dict_value(toolchain_info.coverage_compile_flags_dict)),
+        coverage_link_flags = _list_to_string(dict_value(toolchain_info.coverage_link_flags_dict)),
+        unfiltered_compile_flags = _list_to_string(dict_value(toolchain_info.unfiltered_compile_flags_dict)),
         llvm_version = toolchain_info.llvm_version,
         extra_files_str = extra_files_str,
+        host_tools_info = host_tools_info,
     )

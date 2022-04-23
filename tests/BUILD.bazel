@@ -95,9 +95,11 @@ build_test(
 )
 
 cc_test(
-    name = "pthread_link_test",
-    srcs = ["pthread_link_test.cc"],
-    linkstatic = False,
+    name = "omp_test",
+    srcs = ["omp_test.c"],
+    copts = ["-fopenmp"],
+    linkopts = ["-fopenmp"],
+    deps = ["@llvm_toolchain//:omp"],
 )
 
 sh_test(
@@ -105,6 +107,6 @@ sh_test(
     srcs = ["file_dependency_test.sh"],
     data = [
         "@llvm_toolchain_llvm//:bin/clang-format",
-        "@llvm_toolchain_llvm//:lib/libc++.a",
+        "@llvm_toolchain_llvm//:lib",
     ],
 )

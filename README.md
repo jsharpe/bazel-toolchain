@@ -23,12 +23,18 @@ implementation, please let me know and I can redirect people there.
 Minimum bazel version: **4.0.0**
 
 To use this toolchain, include this section in your WORKSPACE:
-```python
+```starlark
+load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+BAZEL_TOOLCHAIN_TAG = "0.7.1"
+BAZEL_TOOLCHAIN_SHA = "97853d0b2a725f9eb3f5c2cc922e86a69afb35a01b52a69b4f864eaf9f3c4f40"
+
 http_archive(
     name = "com_grail_bazel_toolchain",
-    sha256 = "4dd40bfc94817d8e84e8c9104cb3850a357c94147d26b47e0f6a5a30f8bb6590",
-    strip_prefix = "bazel-toolchain-0.6.2",
-    urls = ["https://github.com/grailbio/bazel-toolchain/archive/0.6.2.tar.gz"],
+    sha256 = BAZEL_TOOLCHAIN_SHA,
+    strip_prefix = "bazel-toolchain-{tag}".format(tag = BAZEL_TOOLCHAIN_TAG),
+    canonical_id = BAZEL_TOOLCHAIN_TAG,
+    url = "https://github.com/grailbio/bazel-toolchain/archive/{tag}.tar.gz".format(tag = BAZEL_TOOLCHAIN_TAG),
 )
 
 load("@com_grail_bazel_toolchain//toolchain:deps.bzl", "bazel_toolchain_dependencies")
@@ -39,7 +45,7 @@ load("@com_grail_bazel_toolchain//toolchain:rules.bzl", "llvm_toolchain")
 
 llvm_toolchain(
     name = "llvm_toolchain",
-    llvm_version = "12.0.0",
+    llvm_version = "13.0.0",
 )
 
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
@@ -56,11 +62,8 @@ build --incompatible_enable_cc_toolchain_resolution
 ## Basic Usage
 
 The toolchain can automatically detect your OS and arch type, and use the right
-pre-built binary distribution from llvm.org. The detection is currently
-based on host OS and is not perfect, so some distributions, docker based
-sandboxed builds, and remote execution builds will need toolchains configured
-manually through the `distribution` attribute. We expect the detection logic to
-grow through community contributions. We welcome PRs! :smile:
+pre-built binary LLVM distribution. See the section on "Bring Your Own LLVM"
+below for more options.
 
 See in-code documentation in [rules.bzl](toolchain/rules.bzl) for available
 attributes to `llvm_toolchain`.
@@ -126,12 +129,34 @@ and instead rely on the `--incompatible_enable_cc_toolchain_resolution` flag.
 
 #### Bring Your Own LLVM
 
-The LLVM toolchain archive is downloaded and extracted as a separate repository
-with the suffix `_llvm`. Alternatively, you can also specify your own
-repositories for each host os-arch pair through the `toolchain_roots`
-attribute. Each of these repositories is typically configured through
-`local_repository` or `http_archive` (with `build_file` attribute as
-`@com_grail_bazel_toolchain//toolchain:BUILD.llvm_repo`).
+The following mechanisms are available for using an LLVM toolchain:
+
+1. Host OS information is used to find the right pre-built binary distribution
+   from llvm.org, given the `llvm_version` attribute. The LLVM toolchain
+   archive is downloaded and extracted as a separate repository with the suffix
+   `_llvm`. The detection is not perfect, so you may have to use other options
+   for some host OS type and versions. We expect the detection logic to grow
+   through community contributions. We welcome PRs.
+2. You can use the `urls` attribute to specify your own URLs for each OS type,
+   version and architecture. For example, you can specify a different URL for
+   Arch Linux and a different one for Ubuntu. Just as with the option above,
+   the archive is downloaded and extracted as a separate repository with the
+   suffix `_llvm`.
+3. You can also specify your own bazel package paths or local absolute paths
+   for each host os-arch pair through the `toolchain_roots` attribute. Note
+   that the keys here are different and less granular than the keys in the `urls`
+   attribute. When using a bazel package path, each of the values is typically
+   a package in the user's workspace or configured through `local_repository` or
+   `http_archive`; the BUILD file of the package should be similar to
+   `@com_grail_bazel_toolchain//toolchain:BUILD.llvm_repo`. If using only
+   `http_archive`, maybe consider using the `urls` attribute instead to get more
+   flexibility if you need.
+4. All the above options rely on host OS information, and are not suited for
+   docker based sandboxed builds or remote execution builds. Such builds will
+   need a single distribution version specified through the `distribution`
+   attribute, or URLs specified through the `urls` attribute with an empty key, or
+   a toolchain root specified through the `toolchain_roots` attribute with an
+   empty key.
 
 #### Sysroots
 
@@ -140,7 +165,7 @@ a path on the user's system, or a bazel `filegroup` like label. One way to
 create a sysroot is to use `docker export` to get a single archive of the
 entire filesystem for the image you want. Another way is to use the build
 scripts provided by the [Chromium
-project](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/linux_sysroot.md).
+project](https://chromium.googlesource.com/chromium/src/+/HEAD/docs/linux/sysroot.md).
 
 #### Cross-compilation
 
@@ -165,6 +190,24 @@ bazel build \
   //...
 ```
 
+#### Supporting New Target Platforms
+
+The following is a rough (untested) list of steps:
+
+1. To help us detect if you are cross-compiling or not, note the arch string as
+   given by `python3 -c 'import platform; print(platform.machine())`.
+2. Edit `SUPPORTED_TARGETS` in
+   [toolchain/internal/common.bzl](toolchain/internal/common.bzl) with the os
+   and the arch string from above.
+3. Add `target_system_name`, etc. in
+   [toolchain/cc_toolchain_config.bzl](toolchain/cc_toolchain_config.bzl).
+4. For cross-compiling, add a `platform` bazel type for your target platform in
+   [platforms/BUILD.bazel](platforms/BUILD.bazel), and add an appropriate
+   sysroot entry to your `llvm_toolchain` repository definition.
+5. If not cross-compiling, bring your own LLVM (see section above) through the
+   `toolchain_roots` or `urls` attribute.
+6. Test your build.
+
 #### Sandbox
 
 Sandboxing the toolchain introduces a significant overhead (100ms per action,
@@ -185,12 +228,23 @@ The toolchain is tested to work with `rules_go`, `rules_rust`, and
 
 The LLVM distribution also provides several tools like `clang-format`. You can
 depend on these tools directly in the bin directory of the distribution. When
-using the auto-configured download (not using `toolchain_roots`), the
-distribution is available in the repo with the suffix `_llvm` appended to the
-name you used for the `llvm_toolchain` rule. For example,
-`@llvm_toolchain_llvm//:bin/clang-format` is a valid and visible target in the
-quickstart example above.
+not using the `toolchain_roots` attribute, the distribution is available in the
+repo with the suffix `_llvm` appended to the name you used for the
+`llvm_toolchain` rule. For example, `@llvm_toolchain_llvm//:bin/clang-format`
+is a valid and visible target in the quickstart example above.
 
+When using the `toolchain_roots` attribute, there is currently no single target
+that you can reference, and you may have to alias the tools you want with a
+`select` clause in your workspace.
+
+As a convenience, some targets are aliased appropriately in the configuration
+repo (as opposed to the LLVM distribution repo) for you to use and will work
+even when using `toolchain_roots`. If your repo is named `llvm_toolchain`, then
+they can be referenced as:
+
+- `@llvm_toolchain//:omp`
+- `@llvm_toolchain//:clang-format`
+- `@llvm_toolchain//:llvm-cov`
 
 ## Prior Art
 
