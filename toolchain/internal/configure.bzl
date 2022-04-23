@@ -98,7 +98,6 @@ def llvm_register_toolchains():
     toolchain_info = struct(
         os = os,
         arch = arch,
-        libcpp = rctx.attr.use_libcpp,
         toolchain_root = toolchain_root,
         toolchain_path_prefix = toolchain_path_prefix,
         tools_path_prefix = tools_path_prefix,
@@ -188,7 +187,6 @@ def _cc_toolchain_str(
         use_absolute_paths):
     host_os = toolchain_info.os
     host_arch = toolchain_info.arch
-    use_libcpp = toolchain_info.libcpp
 
     host_os_bzl = _os_bzl(host_os)
     target_os_bzl = _os_bzl(target_os)
@@ -231,7 +229,6 @@ cc_toolchain_config(
     tools_path_prefix = "{tools_path_prefix}",
     cc_wrapper_prefix = "{cc_wrapper_prefix}",
     sysroot_path = "{sysroot_path}",
-    use_libcpp = {use_libcpp},
     additional_include_dirs = {additional_include_dirs_str},
     llvm_version = "{llvm_version}",
 )
@@ -330,7 +327,6 @@ cc_toolchain(
         target_arch = target_arch,
         host_os = host_os,
         host_arch = host_arch,
-        use_libcpp = use_libcpp,
         target_os_bzl = target_os_bzl,
         host_os_bzl = host_os_bzl,
         toolchain_root = toolchain_info.toolchain_root,
