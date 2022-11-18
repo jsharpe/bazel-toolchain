@@ -1,0 +1,18 @@
+"grailbio/bazel-toolchains"
+
+module(
+    name = "com_grailbio_bazel_toolchain",
+    version = "0.0.0",
+    compatibility_level = 1,
+)
+
+bazel_dep(name = "platforms", version = "0.0.6")
+bazel_dep(name = "rules_cc", version = "0.0.6")
+
+llvm_toolchain = use_extension("@com_grailbio_bazel_toolchain//toolchain:extensions.bzl", "toolchain")
+
+use_repo(llvm_toolchain, "llvm_toolchain", "llvm_toolchain_llvm")
+
+register_toolchains(
+   "@llvm_toolchain//:all"
+)

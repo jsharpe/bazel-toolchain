@@ -248,8 +248,8 @@ _llvm_config_attrs.update({
         default = False,
         doc = "Use absolute paths in the toolchain. Avoids sandbox overhead.",
     ),
-    "_cc_toolchain_config_bzl": attr.label(
-        default = "//toolchain:cc_toolchain_config.bzl",
+    "_cc_toolchain_config_bzl": attr.string(
+        default = "@com_grailbio_bazel_toolchain//toolchain:cc_toolchain_config.bzl",
     ),
 })
 

@@ -200,7 +200,7 @@ def llvm_register_toolchains():
         "BUILD.bazel",
         Label("//toolchain:BUILD.toolchain.tpl"),
         {
-            "%{cc_toolchain_config_bzl}": str(rctx.attr._cc_toolchain_config_bzl),
+            "%{cc_toolchain_config_bzl}": rctx.attr._cc_toolchain_config_bzl,
             "%{cc_toolchains}": cc_toolchains_str,
             "%{symlinked_tools}": symlinked_tools_str,
             "%{wrapper_bin_prefix}": wrapper_bin_prefix,
