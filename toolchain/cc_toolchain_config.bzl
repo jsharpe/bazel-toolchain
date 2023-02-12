@@ -24,6 +24,11 @@ load(
     _os_arch_pair = "os_arch_pair",
 )
 
+# Bazel 4.* doesn't support nested skylark functions, so we cannot simplify
+# _fmt_flags() by defining it as a nested function.
+def _fmt_flags(flags, toolchain_path_prefix):
+    return [f.format(toolchain_path_prefix = toolchain_path_prefix) for f in flags]
+
 # Macro for calling cc_toolchain_config from @bazel_tools with setting the
 # right paths and flags for the tools.
 def cc_toolchain_config(
@@ -63,6 +68,15 @@ def cc_toolchain_config(
             "clang",
             "darwin_x86_64",
             "darwin_x86_64",
+        ),
+        "darwin-aarch64": (
+            "clang-aarch64-darwin",
+            "aarch64-apple-macosx",
+            "darwin",
+            "macosx",
+            "clang",
+            "darwin_aarch64",
+            "darwin_aarch64",
         ),
         "linux-aarch64": (
             "clang-aarch64-linux",
@@ -142,6 +156,9 @@ def cc_toolchain_config(
         use_lld = False
         link_flags.extend([
             "-headerpad_max_install_names",
+            # This will issue a warning on macOS ventura; see:
+            #  https://github.com/python/cpython/issues/97524
+            #  https://developer.apple.com/forums/thread/719961
             "-undefined",
             "dynamic_lookup",
         ])
@@ -183,11 +200,31 @@ def cc_toolchain_config(
                 "-ldl",
             ])
         else:
-            # TODO: Not sure how to achieve static linking of bundled libraries
-            # with ld64; maybe we don't really need it.
+            # The only known mechanism to static link libraries in ld64 is to
+            # not have the corresponding .dylib files in the library search
+            # path. The link time sandbox does not include the .dylib files, so
+            # anything we pick up from the toolchain should be statically
+            # linked. However, several system libraries on macOS dynamically
+            # link libc++ and libc++abi, so static linking them becomes a problem.
+            # We need to ensure that they are dynamic linked from the system
+            # sysroot and not static linked from the toolchain, so explicitly
+            # have the sysroot directory on the search path and then add the
+            # toolchain directory back after we are done.
             link_flags.extend([
+                "-L{}/usr/lib".format(compiler_configuration["sysroot_path"]),
                 "-lc++",
                 "-lc++abi",
+            ])
+
+            # Let's provide the path to the toolchain library directory
+            # explicitly as part of the search path to make it easy for a user
+            # to pick up something. This also makes the behavior consistent with
+            # targets when a user explicitly depends on something like
+            # libomp.dylib, which adds this directory to the search path, and would
+            # (unintentionally) lead to static linking of libraries from the
+            # toolchain.
+            link_flags.extend([
+                "-L{}lib".format(toolchain_path_prefix),
             ])
     elif stdlib == "libc++":
         cxx_flags = [
@@ -235,6 +272,7 @@ def cc_toolchain_config(
             toolchain_path_prefix + "include/c++/v1",
             toolchain_path_prefix + "include/{}/c++/v1".format(target_system_name),
             toolchain_path_prefix + "lib/clang/{}/include".format(llvm_version),
+            toolchain_path_prefix + "lib/clang/{}/share".format(llvm_version),
             toolchain_path_prefix + "lib64/clang/{}/include".format(llvm_version),
         ])
 
@@ -276,7 +314,7 @@ def cc_toolchain_config(
         # In these cases we want to use `libtool_wrapper.sh` which translates
         # the arg file back into command line arguments.
         if not _host_tools.tool_supports(host_tools_info, "libtool", features = [_host_tool_features.SUPPORTS_ARG_FILE]):
-            ar_binary = wrapper_bin_prefix + "bin/host_libtool_wrapper.sh"
+            ar_binary = wrapper_bin_prefix + "host_libtool_wrapper.sh"
         else:
             ar_binary = host_tools_info["libtool"]["path"]
 
@@ -286,7 +324,7 @@ def cc_toolchain_config(
         "ar": ar_binary,
         "cpp": tools_path_prefix + "clang-cpp",
         "dwp": tools_path_prefix + "llvm-dwp",
-        "gcc": wrapper_bin_prefix + "bin/cc_wrapper.sh",
+        "gcc": wrapper_bin_prefix + "cc_wrapper.sh",
         "gcov": tools_path_prefix + "llvm-profdata",
         "ld": tools_path_prefix + "ld.lld" if use_lld else _host_tools.get_and_assert(host_tools_info, "ld"),
         "llvm-cov": tools_path_prefix + "llvm-cov",
@@ -305,30 +343,27 @@ def cc_toolchain_config(
     # `lld` is being used as the linker.
     supports_start_end_lib = use_lld
 
-    def fmt_flags(flags):
-        return [f.format(toolchain_path_prefix = toolchain_path_prefix) for f in flags]
-
     # Replace flags with any user-provided overrides.
     if compiler_configuration["compile_flags"] != None:
-        compile_flags = fmt_flags(compiler_configuration["compile_flags"])
+        compile_flags = _fmt_flags(compiler_configuration["compile_flags"], toolchain_path_prefix)
     if compiler_configuration["cxx_flags"] != None:
-        cxx_flags = fmt_flags(compiler_configuration["cxx_flags"])
+        cxx_flags = _fmt_flags(compiler_configuration["cxx_flags"], toolchain_path_prefix)
     if compiler_configuration["link_flags"] != None:
-        link_flags = fmt_flags(compiler_configuration["link_flags"])
+        link_flags = _fmt_flags(compiler_configuration["link_flags"], toolchain_path_prefix)
     if compiler_configuration["link_libs"] != None:
-        link_libs = fmt_flags(compiler_configuration["link_libs"])
+        link_libs = _fmt_flags(compiler_configuration["link_libs"], toolchain_path_prefix)
     if compiler_configuration["opt_compile_flags"] != None:
-        opt_compile_flags = fmt_flags(compiler_configuration["opt_compile_flags"])
+        opt_compile_flags = _fmt_flags(compiler_configuration["opt_compile_flags"], toolchain_path_prefix)
     if compiler_configuration["opt_link_flags"] != None:
-        opt_link_flags = fmt_flags(compiler_configuration["opt_link_flags"])
+        opt_link_flags = _fmt_flags(compiler_configuration["opt_link_flags"], toolchain_path_prefix)
     if compiler_configuration["dbg_compile_flags"] != None:
-        dbg_compile_flags = fmt_flags(compiler_configuration["dbg_compile_flags"])
+        dbg_compile_flags = _fmt_flags(compiler_configuration["dbg_compile_flags"], toolchain_path_prefix)
     if compiler_configuration["coverage_compile_flags"] != None:
-        coverage_compile_flags = fmt_flags(compiler_configuration["coverage_compile_flags"])
+        coverage_compile_flags = _fmt_flags(compiler_configuration["coverage_compile_flags"], toolchain_path_prefix)
     if compiler_configuration["coverage_link_flags"] != None:
-        coverage_link_flags = fmt_flags(compiler_configuration["coverage_link_flags"])
+        coverage_link_flags = _fmt_flags(compiler_configuration["coverage_link_flags"], toolchain_path_prefix)
     if compiler_configuration["unfiltered_compile_flags"] != None:
-        unfiltered_compile_flags = fmt_flags(compiler_configuration["unfiltered_compile_flags"])
+        unfiltered_compile_flags = _fmt_flags(compiler_configuration["unfiltered_compile_flags"], toolchain_path_prefix)
 
     # Source: https://cs.opensource.google/bazel/bazel/+/master:tools/cpp/unix_cc_toolchain_config.bzl
     unix_cc_toolchain_config(

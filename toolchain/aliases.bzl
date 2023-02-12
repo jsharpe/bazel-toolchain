@@ -1,4 +1,4 @@
-# Copyright 2018 The Bazel Authors.
+# Copyright 2022 The Bazel Authors.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,7 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-exports_files([
-    "llvm_release_name.py",
-    "host_os_key.py",
-])
+# Files that will be made available as convenience targets under the bazel
+# toolchain repository.
+
+aliased_libs = [
+    "omp",
+]
+
+aliased_tools = [
+    "clang-apply-replacements",
+    "clang-format",
+    "clang-tidy",
+    "llvm-cov",
+]

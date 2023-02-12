@@ -1,4 +1,4 @@
-LLVM toolchain for Bazel [![Tests](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml/badge.svg)](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml) [![Migration](https://github.com/grailbio/bazel-toolchain/actions/workflows/migration.yml/badge.svg)](https://github.com/grailbio/bazel-toolchain/actions/workflows/migration.yml)
+LLVM toolchain for Bazel [![Tests](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml/badge.svg)](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml)
 =================
 
 -------
@@ -20,21 +20,21 @@ implementation, please let me know and I can redirect people there.
 
 ## Quickstart
 
-Minimum bazel version: **4.0.0**
+Minimum bazel version: **4.2.1**
 
 To use this toolchain, include this section in your WORKSPACE:
 ```starlark
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
-BAZEL_TOOLCHAIN_TAG = "0.7.1"
-BAZEL_TOOLCHAIN_SHA = "97853d0b2a725f9eb3f5c2cc922e86a69afb35a01b52a69b4f864eaf9f3c4f40"
+BAZEL_TOOLCHAIN_TAG = "0.8.2"
+BAZEL_TOOLCHAIN_SHA = "0fc3a2b0c9c929920f4bed8f2b446a8274cad41f5ee823fd3faa0d7641f20db0"
 
 http_archive(
     name = "com_grail_bazel_toolchain",
     sha256 = BAZEL_TOOLCHAIN_SHA,
     strip_prefix = "bazel-toolchain-{tag}".format(tag = BAZEL_TOOLCHAIN_TAG),
     canonical_id = BAZEL_TOOLCHAIN_TAG,
-    url = "https://github.com/grailbio/bazel-toolchain/archive/{tag}.tar.gz".format(tag = BAZEL_TOOLCHAIN_TAG),
+    url = "https://github.com/grailbio/bazel-toolchain/archive/refs/tags/{tag}.tar.gz".format(tag = BAZEL_TOOLCHAIN_TAG),
 )
 
 load("@com_grail_bazel_toolchain//toolchain:deps.bzl", "bazel_toolchain_dependencies")
@@ -45,7 +45,7 @@ load("@com_grail_bazel_toolchain//toolchain:rules.bzl", "llvm_toolchain")
 
 llvm_toolchain(
     name = "llvm_toolchain",
-    llvm_version = "13.0.0",
+    llvm_version = "15.0.6",
 )
 
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
@@ -181,7 +181,7 @@ The following pairs have been tested to work for some hello-world binaries:
 A recommended approach would be to define two toolchains, one without sysroot
 for single-platform builds, and one with sysroot for cross-compilation builds.
 Then, when cross-compiling, explicitly specify the toolchain with the sysroot
-and the target platform. For example, see the [WORKSPACE](WORKSPACE) file and
+and the target platform. For example, see the [WORKSPACE](tests/WORKSPACE) file and
 the [test script](tests/scripts/run_xcompile_tests.sh) for cross-compilation.
 ```
 bazel build \
@@ -239,8 +239,9 @@ that you can reference, and you may have to alias the tools you want with a
 
 As a convenience, some targets are aliased appropriately in the configuration
 repo (as opposed to the LLVM distribution repo) for you to use and will work
-even when using `toolchain_roots`. If your repo is named `llvm_toolchain`, then
-they can be referenced as:
+even when using `toolchain_roots`. The complete list is in the file
+[aliases.bzl](toolchain/aliases.bzl). If your repo is named `llvm_toolchain`,
+then they can be referenced as:
 
 - `@llvm_toolchain//:omp`
 - `@llvm_toolchain//:clang-format`
@@ -250,6 +251,6 @@ they can be referenced as:
 
 Other examples of toolchain configuration:
 
-https://github.com/bazelbuild/bazel/wiki/Building-with-a-custom-toolchain
+https://bazel.build/tutorials/ccp-toolchain-config
 
 https://github.com/vsco/bazel-toolchains
