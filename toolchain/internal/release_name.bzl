@@ -19,7 +19,7 @@ def _darwin_apple_suffix(llvm_version, arch):
         "darwin-apple"
     elif major_llvm_version >= 15:
         if arch == "arm64":
-            if patch_llvm_version <= 6:
+            if major_llvm_version == 15 and patch_llvm_version <= 6:
                 return "apple-darwin21.0"
             else:
                 return "apple-darwin22.0"
@@ -103,7 +103,8 @@ def _linux(llvm_version, distname, version, arch):
         os_name = "linux-gnu-ubuntu-16.04"
     elif distname == "debian":
         int_version = 0
-        int_version = int(version)
+        if version.isdigit():
+            int_version = int(version)
         if int_version == 0 or int_version >= 9:
             os_name = _ubuntu_osname(arch, "20.04", major_llvm_version, llvm_version)
         elif int_version == 8 and major_llvm_version < 7:
