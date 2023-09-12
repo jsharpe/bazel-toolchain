@@ -13,18 +13,21 @@
 # limitations under the License.
 
 load(
+    "//toolchain:aliases.bzl",
+    _aliased_libs = "aliased_libs",
+    _aliased_tools = "aliased_tools",
+)
+load(
     "//toolchain/internal:common.bzl",
     _arch = "arch",
     _canonical_dir_path = "canonical_dir_path",
     _check_os_arch_keys = "check_os_arch_keys",
     _host_os_arch_dict_value = "host_os_arch_dict_value",
-    _host_tool_features = "host_tool_features",
     _host_tools = "host_tools",
     _list_to_string = "list_to_string",
     _os = "os",
     _os_arch_pair = "os_arch_pair",
     _os_bzl = "os_bzl",
-    _pkg_name_from_label = "pkg_name_from_label",
     _pkg_path_from_label = "pkg_path_from_label",
     _supported_targets = "SUPPORTED_TARGETS",
     _toolchain_tools = "toolchain_tools",
@@ -34,11 +37,10 @@ load(
     _default_sysroot_path = "default_sysroot_path",
     _sysroot_paths_dict = "sysroot_paths_dict",
 )
-load(
-    "//toolchain:aliases.bzl",
-    _aliased_libs = "aliased_libs",
-    _aliased_tools = "aliased_tools",
-)
+
+# When bzlmod is enabled, canonical repos names have @@ in them, while under
+# workspace builds, there is never a @@ in labels.
+BZLMOD_ENABLED = "@@" in str(Label("//:unused"))
 
 def _include_dirs_str(rctx, key):
     dirs = rctx.attr.cxx_builtin_include_directories.get(key)
@@ -60,14 +62,16 @@ def llvm_register_toolchains():
         return
     arch = _arch(rctx)
 
-    (key, toolchain_root) = _host_os_arch_dict_value(rctx, "toolchain_roots")
-    if not toolchain_root:
-        fail("LLVM toolchain root missing for ({}, {})", os, arch)
-    (key, llvm_version) = _host_os_arch_dict_value(rctx, "llvm_versions")
-    if not llvm_version:
-        fail("LLVM version string missing for ({}, {})", os, arch)
+    if not rctx.attr.toolchain_roots:
+        toolchain_root = "@@%s_llvm//" % rctx.attr.name if BZLMOD_ENABLED else "@%s_llvm//" % rctx.attr.name
+    else:
+        (_key, toolchain_root) = _host_os_arch_dict_value(rctx, "toolchain_roots")
 
-    config_repo_path = "external/%s/" % rctx.name
+    if not toolchain_root:
+        fail("LLVM toolchain root missing for ({}, {})".format(os, arch))
+    (_key, llvm_version) = _host_os_arch_dict_value(rctx, "llvm_versions")
+    if not llvm_version:
+        fail("LLVM version string missing for ({}, {})".format(os, arch))
 
     use_absolute_paths_llvm = rctx.attr.absolute_paths
     use_absolute_paths_sysroot = use_absolute_paths_llvm
@@ -160,16 +164,12 @@ def llvm_register_toolchains():
     host_dl_ext = "dylib" if os == "darwin" else "so"
     host_tools_info = dict([
         pair
-        for (key, tool_path, features) in [
-            # This is used for macOS hosts:
-            ("libtool", "/usr/bin/libtool", [_host_tool_features.SUPPORTS_ARG_FILE]),
-            # This is used with old (pre 7) LLVM versions:
-            ("strip", "/usr/bin/strip", []),
+        for (key, tool_path) in [
             # This is used when lld doesn't support the target platform (i.e.
             # Mach-O for macOS):
-            ("ld", "/usr/bin/ld", []),
+            ("ld", "/usr/bin/ld"),
         ]
-        for pair in _host_tools.get_tool_info(rctx, tool_path, features, key).items()
+        for pair in _host_tools.get_tool_info(rctx, tool_path, key).items()
     ])
     cc_toolchains_str, toolchain_labels_str = _cc_toolchains_str(
         workspace_name,
@@ -189,7 +189,7 @@ def llvm_register_toolchains():
     # Convenience macro to register all generated toolchains.
     rctx.template(
         "toolchains.bzl",
-        Label("//toolchain:toolchains.bzl.tpl"),
+        rctx.attr._toolchains_bzl_tpl,
         {
             "%{toolchain_labels}": toolchain_labels_str,
         },
@@ -198,7 +198,7 @@ def llvm_register_toolchains():
     # BUILD file with all the generated toolchain definitions.
     rctx.template(
         "BUILD.bazel",
-        Label("//toolchain:BUILD.toolchain.tpl"),
+        rctx.attr._build_toolchain_tpl,
         {
             "%{cc_toolchain_config_bzl}": str(rctx.attr._cc_toolchain_config_bzl),
             "%{cc_toolchains}": cc_toolchains_str,
@@ -210,23 +210,14 @@ def llvm_register_toolchains():
 
     # CC wrapper script; see comments near the definition of `wrapper_bin_prefix`.
     if os == "darwin":
-        cc_wrapper_tpl = "//toolchain:osx_cc_wrapper.sh.tpl"
+        cc_wrapper_tpl = rctx.attr._darwin_cc_wrapper_sh_tpl
     else:
-        cc_wrapper_tpl = "//toolchain:cc_wrapper.sh.tpl"
+        cc_wrapper_tpl = rctx.attr._cc_wrapper_sh_tpl
     rctx.template(
         "bin/cc_wrapper.sh",
-        Label(cc_wrapper_tpl),
+        cc_wrapper_tpl,
         {
             "%{toolchain_path_prefix}": llvm_dist_path_prefix,
-        },
-    )
-
-    # libtool wrapper; used if the host libtool doesn't support arg files:
-    rctx.template(
-        "bin/host_libtool_wrapper.sh",
-        Label("//toolchain:host_libtool_wrapper.sh.tpl"),
-        {
-            "%{libtool_path}": "/usr/bin/libtool",
         },
     )
 
@@ -270,7 +261,7 @@ def _cc_toolchains_str(
     return cc_toolchains_str, toolchain_labels_str
 
 # Gets a value from the dict for the target pair, falling back to an empty
-# key, if present.  Bazel 4.* doesn't support nested skylark functions, so
+# key, if present.  Bazel 4.* doesn't support nested starlark functions, so
 # we cannot simplify _dict_value() by defining it as a nested function.
 def _dict_value(d, target_pair, default = None):
     return d.get(target_pair, d.get("", default))

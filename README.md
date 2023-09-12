@@ -1,7 +1,6 @@
-LLVM toolchain for Bazel [![Tests](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml/badge.svg)](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml)
-=================
+# LLVM toolchain for Bazel [![Tests](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml/badge.svg)](https://github.com/grailbio/bazel-toolchain/actions/workflows/tests.yml)
 
--------
+---
 
 The project is in a relatively stable state and in use for all code development
 at GRAIL and other organizations. Having said that, I am unable to give time to
@@ -16,13 +15,30 @@ implementation, please let me know and I can redirect people there.
 
 – @siddharthab
 
--------
+---
 
 ## Quickstart
 
-Minimum bazel version: **4.2.1**
+Minimum bazel version: **6.0.0** (6.1.0 if using blzmod)
 
-To use this toolchain, include this section in your WORKSPACE:
+If you're using `bzlmod`, add the following to `MODULE.bazel`:
+
+```starlark
+bazel_dep(name = "llvm_toolchain", version = "0.8.2")
+
+llvm = use_extension("@llvm_toolchain//toolchain/extensions:llvm.bzl", "llvm")
+llvm.toolchain(
+   llvm_version = "15.0.6",
+)
+
+use_repo(llvm, "llvm_toolchain")
+# use_repo(llvm, "llvm_toolchain_llvm") # if you depend on specific tools in scripts
+
+register_toolchains("@llvm_toolchain//:all")
+```
+
+To use this toolchain, include this section in your `WORKSPACE`:
+
 ```starlark
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
@@ -45,7 +61,7 @@ load("@com_grail_bazel_toolchain//toolchain:rules.bzl", "llvm_toolchain")
 
 llvm_toolchain(
     name = "llvm_toolchain",
-    llvm_version = "15.0.6",
+    llvm_version = "16.0.0",
 )
 
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
@@ -53,10 +69,15 @@ load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 llvm_register_toolchains()
 ```
 
-And add the following section to your .bazelrc file (not needed after
-this [issue](https://github.com/bazelbuild/bazel/issues/7260) is closed):
+And add the following section to your .bazelrc file:
+
 ```
+# Not needed after https://github.com/bazelbuild/bazel/issues/7260 is closed
 build --incompatible_enable_cc_toolchain_resolution
+
+# Tell Bazel to pass the right flags for llvm-ar, not libtool. Only needed if you are building on darwin.
+# See https://github.com/bazelbuild/bazel/blob/5c75d0acec21459bbb13520817e3806e1507e907/tools/cpp/unix_cc_toolchain_config.bzl#L1000-L1024
+build --features=-libtool
 ```
 
 ## Basic Usage
@@ -70,10 +91,34 @@ attributes to `llvm_toolchain`.
 
 ## Advanced Usage
 
+#### Per host architecture LLVM version
+
+LLVM does not come with distributions for all host architectures in each
+version. In particular patch versions often come with few prebuilt packages.
+This means that a single version probably is not enough to address all hosts
+one wants to support.
+
+This can be solved by providing a target/version map with a default version.
+The example below selects `15.0.6` as the default version for all targets not
+specified explicitly. This is like providing `llvm_version = "15.0.6"`, just
+like in the example on the top. However, here we provide two more entries that
+map their respective target to a distinct version:
+
+```
+llvm_toolchain(
+    name = "llvm_toolchain",
+    llvm_versions = {
+        "": "15.0.6",
+        "darwin-aarch64": "15.0.7",
+        "darwin-x86_64": "15.0.7",
+    },
+)
+```
+
 #### Customizations
 
 We currently offer limited customizability through attributes of the
-[llvm_toolchain_\* rules](toolchain/rules.bzl). You can send us a PR to add
+[llvm_toolchain\_\* rules](toolchain/rules.bzl). You can send us a PR to add
 more configuration attributes.
 
 A majority of the complexity of this project is to make it generic for multiple
@@ -121,7 +166,7 @@ with the `--toolchain_resolution_debug` flag to see which toolchains were
 selected by bazel for your target platform.
 
 For specifying unregistered toolchains on the command line, please use the
-`--extra_toolchains` flag.  For example,
+`--extra_toolchains` flag. For example,
 `--extra_toolchains=@llvm_toolchain//:cc-toolchain-x86_64-linux`.
 
 We no longer support the `--crosstool_top=@llvm_toolchain//:toolchain` flag,
@@ -132,11 +177,12 @@ and instead rely on the `--incompatible_enable_cc_toolchain_resolution` flag.
 The following mechanisms are available for using an LLVM toolchain:
 
 1. Host OS information is used to find the right pre-built binary distribution
-   from llvm.org, given the `llvm_version` attribute. The LLVM toolchain
-   archive is downloaded and extracted as a separate repository with the suffix
-   `_llvm`. The detection is not perfect, so you may have to use other options
-   for some host OS type and versions. We expect the detection logic to grow
-   through community contributions. We welcome PRs.
+   from llvm.org, given the `llvm_version` or `llvm_versions` attribute. The
+   LLVM toolchain archive is downloaded and extracted as a separate repository
+   with the suffix `_llvm`. The detection logic for `llvm_version` is not
+   perfect, so you may have to use `llvm_versions` for some host OS type and
+   versions. We expect the detection logic to grow through community
+   contributions. We welcome PRs.
 2. You can use the `urls` attribute to specify your own URLs for each OS type,
    version and architecture. For example, you can specify a different URL for
    Arch Linux and a different one for Ubuntu. Just as with the option above,
@@ -173,6 +219,7 @@ The toolchain supports cross-compilation if you bring your own sysroot. When
 cross-compiling, we link against the libstdc++ from the sysroot
 (single-platform build behavior is to link against libc++ bundled with LLVM).
 The following pairs have been tested to work for some hello-world binaries:
+
 - {linux, x86_64} -> {linux, aarch64}
 - {linux, aarch64} -> {linux, x86_64}
 - {darwin, x86_64} -> {linux, x86_64}
@@ -183,6 +230,7 @@ for single-platform builds, and one with sysroot for cross-compilation builds.
 Then, when cross-compiling, explicitly specify the toolchain with the sysroot
 and the target platform. For example, see the [WORKSPACE](tests/WORKSPACE) file and
 the [test script](tests/scripts/run_xcompile_tests.sh) for cross-compilation.
+
 ```
 bazel build \
   --platforms=@com_grail_bazel_toolchain//platforms:linux-x86_64 \
@@ -212,7 +260,7 @@ The following is a rough (untested) list of steps:
 
 Sandboxing the toolchain introduces a significant overhead (100ms per action,
 as of mid 2018). To overcome this, one can use
-`--experimental_sandbox_base=/dev/shm`.  However, not all environments might
+`--experimental_sandbox_base=/dev/shm`. However, not all environments might
 have enough shared memory available to load all the files in memory. If this is
 a concern, you may set the attribute for using absolute paths, which will
 substitute templated paths to the toolchain as absolute paths. When running

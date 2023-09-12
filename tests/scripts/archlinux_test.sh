@@ -16,7 +16,7 @@
 set -euo pipefail
 
 images=(
-"archlinux:base-devel"
+  "archlinux:base-devel"
 )
 
 # See note next to the definition of this toolchain in the WORKSPACE file.
@@ -29,9 +29,6 @@ for image in "${images[@]}"; do
   docker pull "${image}"
   docker run --rm --entrypoint=/bin/bash --volume="${git_root}:/src:ro" "${image}" -c """
 set -exuo pipefail
-
-# Install dependencies
-pacman -Syu --noconfirm --quiet python
 
 # Run tests
 cd /src
