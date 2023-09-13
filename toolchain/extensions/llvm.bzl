@@ -14,6 +14,7 @@ def _llvm_impl_(module_ctx):
         for toolchain_attr in mod.tags.toolchain:
             llvm_toolchain(
                 name = toolchain_attr.name,
+                cxx_standard = toolchain_attr.cxx_standard,
                 llvm_version = toolchain_attr.llvm_version,
                 llvm_versions = toolchain_attr.llvm_versions,
                 stdlib = toolchain_attr.stdlib,
