@@ -9,8 +9,6 @@ load(
 
 def _llvm_impl_(module_ctx):
     for mod in module_ctx.modules:
-        if not mod.is_root:
-            fail("Only the root module can use the 'llvm' extension")
         for toolchain_attr in mod.tags.toolchain:
             llvm_toolchain(
                 name = toolchain_attr.name,
