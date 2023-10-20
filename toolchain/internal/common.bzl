@@ -37,12 +37,11 @@ def host_os_key(rctx):
 _known_distros = ["freebsd", "suse", "ubuntu", "arch", "manjaro", "debian", "fedora", "centos", "amzn", "raspbian", "pop", "rhel"]
 
 def _linux_dist(rctx):
-    res = rctx.execute(["cat", "/etc/os-release"])
-    if res.return_code:
-        fail("Failed to detect machine architecture: \n%s\n%s" % (res.stdout, res.stderr))
     info = {}
-    for l in res.stdout.splitlines():
-        parts = l.split("=", 1)
+    for line in rctx.read("/etc/os-release").splitlines():
+        parts = line.split("=", 1)
+        if len(parts) == 1:
+            continue
         info[parts[0]] = parts[1]
 
     distname = info["ID"].strip('\"')
@@ -122,12 +121,12 @@ def host_os_arch_dict_value(rctx, attr_name, debug = False):
 
     key2 = os_arch_pair(os(rctx), arch(rctx))
     if debug:
-        print("`%s` attribute missing for key '%s' in repository '%s'; checking with key '%s'" % (attr_name, key1, rctx.name, key2))
+        print("`%s` attribute missing for key '%s' in repository '%s'; checking with key '%s'" % (attr_name, key1, rctx.name, key2))  # buildifier: disable=print
     if key2 in d:
         return (key2, d.get(key2))
 
     if debug:
-        print("`%s` attribute missing for key '%s' in repository '%s'; checking with key ''" % (attr_name, key2, rctx.name))
+        print("`%s` attribute missing for key '%s' in repository '%s'; checking with key ''" % (attr_name, key2, rctx.name))  # buildifier: disable=print
     return ("", d.get(""))  # Fallback to empty key.
 
 def canonical_dir_path(path):
@@ -147,10 +146,10 @@ def pkg_path_from_label(label):
     else:
         return label.package
 
-def list_to_string(l):
-    if l == None:
+def list_to_string(ls):
+    if ls == None:
         return "None"
-    return "[{}]".format(", ".join(["\"{}\"".format(d) for d in l]))
+    return "[{}]".format(", ".join(["\"{}\"".format(d) for d in ls]))
 
 def attr_dict(attr):
     # Returns a mutable dict of attr values from the struct. This is useful to

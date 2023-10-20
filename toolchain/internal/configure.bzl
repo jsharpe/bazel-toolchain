@@ -42,12 +42,6 @@ load(
 # workspace builds, there is never a @@ in labels.
 BZLMOD_ENABLED = "@@" in str(Label("//:unused"))
 
-def _include_dirs_str(rctx, key):
-    dirs = rctx.attr.cxx_builtin_include_directories.get(key)
-    if not dirs:
-        return ""
-    return ("\n" + 12 * " ").join(["\"%s\"," % d for d in dirs])
-
 def llvm_config_impl(rctx):
     _check_os_arch_keys(rctx.attr.sysroot)
     _check_os_arch_keys(rctx.attr.cxx_builtin_include_directories)
@@ -132,7 +126,6 @@ def llvm_register_toolchains():
         rctx.attr.sysroot,
         use_absolute_paths_sysroot,
     )
-    default_sysroot_path = _default_sysroot_path(rctx, os)
 
     workspace_name = rctx.name
     toolchain_info = struct(
@@ -144,7 +137,6 @@ def llvm_register_toolchains():
         wrapper_bin_prefix = wrapper_bin_prefix,
         sysroot_paths_dict = sysroot_paths_dict,
         sysroot_labels_dict = sysroot_labels_dict,
-        default_sysroot_path = default_sysroot_path,
         target_settings_dict = rctx.attr.target_settings,
         additional_include_dirs_dict = rctx.attr.cxx_builtin_include_directories,
         stdlib_dict = rctx.attr.stdlib,
@@ -172,6 +164,7 @@ def llvm_register_toolchains():
         for pair in _host_tools.get_tool_info(rctx, tool_path, key).items()
     ])
     cc_toolchains_str, toolchain_labels_str = _cc_toolchains_str(
+        rctx,
         workspace_name,
         toolchain_info,
         use_absolute_paths_llvm,
@@ -222,6 +215,7 @@ def llvm_register_toolchains():
     )
 
 def _cc_toolchains_str(
+        rctx,
         workspace_name,
         toolchain_info,
         use_absolute_paths_llvm,
@@ -244,6 +238,7 @@ def _cc_toolchains_str(
     for (target_os, target_arch) in _supported_targets:
         suffix = "{}-{}".format(target_arch, target_os)
         cc_toolchain_str = _cc_toolchain_str(
+            rctx,
             suffix,
             target_os,
             target_arch,
@@ -267,6 +262,7 @@ def _dict_value(d, target_pair, default = None):
     return d.get(target_pair, d.get("", default))
 
 def _cc_toolchain_str(
+        rctx,
         suffix,
         target_os,
         target_arch,
@@ -291,7 +287,7 @@ def _cc_toolchain_str(
     if not sysroot_path:
         if host_os == target_os and host_arch == target_arch:
             # For darwin -> darwin, we can use the macOS SDK path.
-            sysroot_path = toolchain_info.default_sysroot_path
+            sysroot_path = _default_sysroot_path(rctx, host_os)
         else:
             # We are trying to cross-compile without a sysroot, let's bail.
             # TODO: Are there situations where we can continue?

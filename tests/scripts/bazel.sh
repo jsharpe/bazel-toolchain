@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-os="$(uname -s | tr "[:upper:]" "[:lower:]")"
+# shellcheck shell=bash
+
+short_uname="$(uname -s)"
+readonly short_uname
+
+os="$(echo "${short_uname}" | tr "[:upper:]" "[:lower:]")"
 readonly os
 
 arch="$(uname -m)"
@@ -45,10 +50,15 @@ common_test_args=(
   "--test_output=errors"
 )
 
-# TODO: Remove this once we no longer support bazel 6.x.
-# This feature isn't intentionally supported on macOS.
-if [[ $(uname -s) == 'Darwin' ]]; then
-  common_test_args+=(--features=-supports_dynamic_linker)
+if [[ ${short_uname} == 'Darwin' ]]; then
+  common_test_args+=(
+    # Needed for Bazel versions before 7.
+    # Without this, one can use `--linkopt='-undefined dynamic_lookup'`.
+    # This feature is intentionally not supported on macOS.
+    --features=-supports_dynamic_linker
+    # Not needed after https://github.com/grailbio/bazel-toolchain/pull/229.
+    --features=-libtool
+  )
 fi
 
 # Do not run autoconf to configure local CC toolchains.
