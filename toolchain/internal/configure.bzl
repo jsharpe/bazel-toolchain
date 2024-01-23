@@ -437,7 +437,6 @@ filegroup(
         "{llvm_dist_label_prefix}clang",
         "{llvm_dist_label_prefix}include",
         ":sysroot-components-{suffix}",
-        "@mpi//:compiler_deps",
     ],
 )
 
