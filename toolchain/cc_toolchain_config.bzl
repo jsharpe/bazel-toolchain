@@ -19,7 +19,6 @@ load(
 load(
     "//toolchain/internal:common.bzl",
     _check_os_arch_keys = "check_os_arch_keys",
-    _host_tools = "host_tools",
     _os_arch_pair = "os_arch_pair",
 )
 
@@ -32,8 +31,8 @@ def _fmt_flags(flags, toolchain_path_prefix):
 # right paths and flags for the tools.
 def cc_toolchain_config(
         name,
-        host_arch,
-        host_os,
+        exec_arch,
+        exec_os,
         target_arch,
         target_os,
         target_system_name,
@@ -41,16 +40,14 @@ def cc_toolchain_config(
         tools_path_prefix,
         wrapper_bin_prefix,
         compiler_configuration,
-        cxx_builtin_include_directories,
-        host_tools_info = {}):
-    host_os_arch_key = _os_arch_pair(host_os, host_arch)
+        cxx_builtin_include_directories):
+    exec_os_arch_key = _os_arch_pair(exec_os, exec_arch)
     target_os_arch_key = _os_arch_pair(target_os, target_arch)
-    _check_os_arch_keys([host_os_arch_key, target_os_arch_key])
+    _check_os_arch_keys([exec_os_arch_key, target_os_arch_key])
 
     # A bunch of variables that get passed straight through to
     # `create_cc_toolchain_config_info`.
     # TODO: What do these values mean, and are they actually all correct?
-    host_system_name = host_arch
     (
         toolchain_identifier,
         target_cpu,
@@ -107,7 +104,7 @@ def cc_toolchain_config(
         "-fdebug-prefix-map={}=__bazel_toolchain_llvm_repo__/".format(toolchain_path_prefix),
     ]
 
-    is_xcompile = not (host_os == target_os and host_arch == target_arch)
+    is_xcompile = not (exec_os == target_os and exec_arch == target_arch)
 
     # Default compiler flags:
     compile_flags = [
@@ -144,14 +141,27 @@ def cc_toolchain_config(
     # unused symbols are not stripped.
     link_libs = []
 
+    # Flags for ar.
+    archive_flags = []
+
     # Linker flags:
-    if host_os == "darwin" and not is_xcompile:
+    if exec_os == "darwin" and not is_xcompile:
         # lld is experimental for Mach-O, so we use the native ld64 linker.
         # TODO: How do we cross-compile from Linux to Darwin?
         use_lld = False
         link_flags.extend([
             "-headerpad_max_install_names",
             "-fobjc-link-runtime",
+        ])
+
+        # Use the bundled libtool (llvm-libtool-darwin).
+        use_libtool = True
+
+        # Pre-installed libtool on macOS has -static as default, but llvm-libtool-darwin needs it
+        # explicitly. cc_common.create_link_variables does not automatically add this either if
+        # output_file arg to it is None.
+        archive_flags.extend([
+            "-static",
         ])
     else:
         # Note that for xcompiling from darwin to linux, the native ld64 is
@@ -164,6 +174,7 @@ def cc_toolchain_config(
             "-Wl,--hash-style=gnu",
             "-Wl,-z,relro,-z,now",
         ])
+        use_libtool = False
 
     # Flags related to C++ standard.
     # The linker has no way of knowing if there are C++ objects; so we
@@ -192,32 +203,22 @@ def cc_toolchain_config(
                 "-ldl",
             ])
         else:
-            # The only known mechanism to static link libraries in ld64 is to
-            # not have the corresponding .dylib files in the library search
-            # path. The link time sandbox does not include the .dylib files, so
-            # anything we pick up from the toolchain should be statically
-            # linked. However, several system libraries on macOS dynamically
-            # link libc++ and libc++abi, so static linking them becomes a problem.
-            # We need to ensure that they are dynamic linked from the system
-            # sysroot and not static linked from the toolchain, so explicitly
-            # have the sysroot directory on the search path and then add the
-            # toolchain directory back after we are done.
+            # Several system libraries on macOS dynamically link libc++ and
+            # libc++abi, so static linking them becomes a problem. We need to
+            # ensure that they are dynamic linked from the system sysroot and
+            # not static linked from the toolchain, so explicitly have the
+            # sysroot directory on the search path and then add the toolchain
+            # directory back after we are done.
             link_flags.extend([
                 "-L{}/usr/lib".format(sysroot_path),
                 "-lc++",
                 "-lc++abi",
-            ])
-
-            # Let's provide the path to the toolchain library directory
-            # explicitly as part of the search path to make it easy for a user
-            # to pick up something. This also makes the behavior consistent with
-            # targets when a user explicitly depends on something like
-            # libomp.dylib, which adds this directory to the search path, and would
-            # (unintentionally) lead to static linking of libraries from the
-            # toolchain.
-            link_flags.extend([
+                "-Bstatic",
+                "-lunwind",
+                "-Bdynamic",
                 "-L{}lib".format(toolchain_path_prefix),
             ])
+
     elif stdlib == "libc++":
         cxx_flags = [
             "-std=" + cxx_standard,
@@ -260,15 +261,18 @@ def cc_toolchain_config(
     ## NOTE: make variables are missing here; unix_cc_toolchain_config doesn't
     ## pass these to `create_cc_toolchain_config_info`.
 
-    # The tool names come from [here](https://github.com/bazelbuild/bazel/blob/c7e58e6ce0a78fdaff2d716b4864a5ace8917626/src/main/java/com/google/devtools/build/lib/rules/cpp/CppConfiguration.java#L76-L90):
+    # The requirements here come from
+    # https://cs.opensource.google/bazel/bazel/+/master:src/main/starlark/builtins_bzl/common/cc/cc_toolchain_provider_helper.bzl;l=75;drc=f0150efd1cca473640269caaf92b5a23c288089d
+    # https://cs.opensource.google/bazel/bazel/+/master:src/main/java/com/google/devtools/build/lib/rules/cpp/CcModule.java;l=1257;drc=6743d76f9ecde726d592e88d8914b9db007b1c43
+    # https://cs.opensource.google/bazel/bazel/+/refs/tags/7.0.0:tools/cpp/unix_cc_toolchain_config.bzl;l=192,201;drc=044a14cca2747aeff258fc71eaeb153c08cb34d5
     # NOTE: Ensure these are listed in toolchain_tools in toolchain/internal/common.bzl.
     tool_paths = {
-        "ar": tools_path_prefix + "llvm-ar",
+        "ar": tools_path_prefix + ("llvm-ar" if not use_libtool else "libtool"),
         "cpp": tools_path_prefix + "clang-cpp",
         "dwp": tools_path_prefix + "llvm-dwp",
         "gcc": wrapper_bin_prefix + "cc_wrapper.sh",
         "gcov": tools_path_prefix + "llvm-profdata",
-        "ld": tools_path_prefix + "ld.lld" if use_lld else _host_tools.get_and_assert(host_tools_info, "ld"),
+        "ld": tools_path_prefix + "ld.lld" if use_lld else "/usr/bin/ld",
         "llvm-cov": tools_path_prefix + "llvm-cov",
         "llvm-profdata": tools_path_prefix + "llvm-profdata",
         "nm": tools_path_prefix + "llvm-nm",
@@ -292,6 +296,8 @@ def cc_toolchain_config(
         cxx_flags = _fmt_flags(compiler_configuration["cxx_flags"], toolchain_path_prefix)
     if compiler_configuration["link_flags"] != None:
         link_flags = _fmt_flags(compiler_configuration["link_flags"], toolchain_path_prefix)
+    if compiler_configuration["archive_flags"] != None:
+        archive_flags = _fmt_flags(compiler_configuration["archive_flags"], toolchain_path_prefix)
     if compiler_configuration["link_libs"] != None:
         link_libs = _fmt_flags(compiler_configuration["link_libs"], toolchain_path_prefix)
     if compiler_configuration["opt_compile_flags"] != None:
@@ -313,7 +319,7 @@ def cc_toolchain_config(
         cpu = target_cpu,
         compiler = compiler,
         toolchain_identifier = toolchain_identifier,
-        host_system_name = host_system_name,
+        host_system_name = exec_arch,
         target_system_name = target_system_name,
         target_libc = target_libc,
         abi_version = abi_version,
@@ -325,6 +331,7 @@ def cc_toolchain_config(
         opt_compile_flags = opt_compile_flags,
         cxx_flags = cxx_flags,
         link_flags = link_flags,
+        archive_flags = archive_flags,
         link_libs = link_libs,
         opt_link_flags = opt_link_flags,
         unfiltered_compile_flags = unfiltered_compile_flags,

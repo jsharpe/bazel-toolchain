@@ -35,6 +35,14 @@ common_attrs = {
                "in the list of known llvm_distributions using the provided version. " +
                "If unset, a default value is set from the `llvm_version` attribute."),
     ),
+    "exec_os": attr.string(
+        mandatory = False,
+        doc = "Execution platform OS, if different from host OS.",
+    ),
+    "exec_arch": attr.string(
+        mandatory = False,
+        doc = "Execution platform architecture, if different from host arch.",
+    ),
 }
 
 llvm_repo_attrs = dict(common_attrs)
@@ -80,7 +88,7 @@ llvm_repo_attrs.update({
               "\n\n" +
               "If provided, this mirror will be given precedence over the official LLVM release " +
               "sources (see: " +
-              "https://github.com/grailbio/bazel-toolchain/toolchain/internal/llvm_distributions.bzl).",
+              "https://github.com/bazel-contrib/toolchains_llvm/toolchain/internal/llvm_distributions.bzl).",
     ),
     "alternative_llvm_sources": attr.string_list(
         doc = "Patterns for alternative LLVM release sources. Unlike URLs specified for `llvm_mirror` " +
@@ -165,6 +173,14 @@ _compiler_configuration_attrs = {
                "target OS and arch pair you want to override " +
                "({}); empty key overrides all.".format(_target_pairs)),
     ),
+    "archive_flags": attr.string_list_dict(
+        mandatory = False,
+        doc = ("Override for archive_flags, replacing the default values. " +
+               "`{toolchain_path_prefix}` in the flags will be substituted by the path " +
+               "to the root LLVM distribution directory. Provide one list for each " +
+               "target OS and arch pair you want to override " +
+               "({}); empty key overrides all.".format(_target_pairs)),
+    ),
     "link_libs": attr.string_list_dict(
         mandatory = False,
         doc = ("Override for link_libs, replacing the default values. " +
@@ -224,6 +240,12 @@ _compiler_configuration_attrs = {
     "target_settings": attr.string_list_dict(
         mandatory = False,
         doc = ("Override the toolchain's `target_settings` attribute."),
+    ),
+    "extra_compiler_files": attr.label(
+        mandatory = False,
+        doc = ("Files to be made available in the sandbox for compile actions. " +
+               "Mostly useful for providing files containing lists of flags, e.g. " +
+               "sanitizer ignorelists."),
     ),
 }
 
