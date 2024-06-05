@@ -15,7 +15,6 @@
 SUPPORTED_TARGETS = [("linux", "x86_64"), ("linux", "aarch64"), ("darwin", "x86_64"), ("darwin", "aarch64")]
 
 # Map of tool name to its symlinked name in the tools directory.
-# See tool_paths in toolchain/cc_toolchain_config.bzl.
 _toolchain_tools = {
     name: name
     for name in [
@@ -41,7 +40,7 @@ _toolchain_tools_darwin = {
     "llvm-libtool-darwin": "libtool",
 }
 
-def exec_os_key(rctx):
+def host_os_key(rctx):
     (os, version, arch) = os_version_arch(rctx)
     if version == "":
         return "%s-%s" % (os, arch)
@@ -155,14 +154,14 @@ def check_os_arch_keys(keys):
                 keys = ", ".join(_supported_os_arch),
             ))
 
-def exec_os_arch_dict_value(rctx, attr_name, debug = False):
+def host_os_arch_dict_value(rctx, attr_name, debug = False):
     # Gets a value from a dictionary keyed by host OS and arch.
     # Checks for the more specific key, then the less specific,
     # and finally the empty key as fallback.
     # Returns a tuple of the matching key and value.
 
     d = getattr(rctx.attr, attr_name)
-    key1 = exec_os_key(rctx)
+    key1 = host_os_key(rctx)
     if key1 in d:
         return (key1, d.get(key1))
 
@@ -231,3 +230,32 @@ def toolchain_tools(os):
     if os == "darwin":
         tools.update(_toolchain_tools_darwin)
     return tools
+
+def _get_host_tool_info(rctx, tool_path, tool_key = None):
+    if tool_key == None:
+        tool_key = tool_path
+
+    if tool_path == None or not rctx.path(tool_path).exists:
+        return {}
+
+    return {
+        tool_key: struct(
+            path = tool_path,
+            features = [],
+        ),
+    }
+
+def _extract_tool_path(tool_info):
+    # Have to support structs or dicts:
+    return tool_info.path if type(tool_info) == "struct" else tool_info["path"]
+
+def _get_host_tool(host_tool_info, tool_key):
+    if tool_key in host_tool_info:
+        return _extract_tool_path(host_tool_info[tool_key])
+    else:
+        return None
+
+host_tools = struct(
+    get_tool_info = _get_host_tool_info,
+    get_and_assert = _get_host_tool,
+)
