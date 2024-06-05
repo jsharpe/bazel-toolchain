@@ -573,9 +573,3 @@ native_binary(
         llvm_dist_label_prefix = llvm_dist_label_prefix,
         exec_dl_ext = exec_dl_ext,
     )
-
-def _is_hermetic_or_exists(rctx, path, sysroot_path):
-    path = path.replace("%sysroot%", sysroot_path).replace("//", "/")
-    if not path.startswith("/"):
-        return True
-    return rctx.path(path).exists
