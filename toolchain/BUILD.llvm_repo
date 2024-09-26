@@ -15,11 +15,15 @@
 package(default_visibility = ["//visibility:public"])
 
 # Some targets may need to directly depend on these files.
-exports_files(glob([
-    "bin/*",
-    "lib/*",
-    "include/*",
-]))
+exports_files(glob(
+    [
+        "bin/*",
+        "lib/*",
+        "include/*",
+        "share/clang/*",
+    ],
+    allow_empty = True,
+))
 
 ## LLVM toolchain files
 
@@ -34,7 +38,10 @@ filegroup(
 
 filegroup(
     name = "ld",
-    srcs = glob(["bin/ld.lld", "bin/ld64.lld"]),
+    srcs = [
+        "bin/ld.lld",
+        "bin/ld64.lld",
+    ],
 )
 
 filegroup(
@@ -46,8 +53,11 @@ filegroup(
 )
 
 filegroup(
-  name = "all_includes",
-  srcs = glob(["include/**"]),
+    name = "all_includes",
+    srcs = glob(
+        ["include/**"],
+        allow_empty = True,
+    ),
 )
 
 filegroup(
@@ -69,6 +79,7 @@ filegroup(
             # clang_rt.*.o supply crtbegin and crtend sections.
             "lib/**/clang_rt.*.o",
         ],
+        allow_empty = True,
         exclude = [
             "lib/libLLVM*.a",
             "lib/libclang*.a",

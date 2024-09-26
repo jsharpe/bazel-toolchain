@@ -1,5 +1,7 @@
 load(
     "//toolchain/internal:common.bzl",
+    _arch = "arch",
+    _os = "os",
     _os_version_arch = "os_version_arch",
 )
 
@@ -27,9 +29,14 @@ def _darwin_apple_suffix(llvm_version, arch):
             return "apple-darwin21.0"
         else:
             return "apple-darwin"
-    elif major_llvm_version >= 15:
+    elif major_llvm_version >= 15 and major_llvm_version < 18:
         if arch == "arm64":
             return "apple-darwin22.0"
+        else:
+            return "apple-darwin21.0"
+    elif major_llvm_version >= 18:
+        if arch == "arm64":
+            return "apple-macos11"
         else:
             return "apple-darwin21.0"
     else:
@@ -95,7 +102,7 @@ def _ubuntu_osname(arch, version, major_llvm_version, llvm_version):
             os_name = "linux-gnu-ubuntu-22.04"
         elif llvm_version in ["16.0.1"]:
             os_name = "linux-gnu-ubuntu-20.04"
-        elif llvm_version in ["18.1.4", "15.0.6", "15.0.5", "13.0.1"]:
+        elif llvm_version in ["18.1.8", "18.1.7", "18.1.4", "15.0.6", "15.0.5", "13.0.1"]:
             os_name = "linux-gnu-ubuntu-18.04"
         elif llvm_version in ["15.0.2"]:
             os_name = "unknown-linux-gnu-rhel86"
@@ -156,7 +163,10 @@ def _linux(llvm_version, distname, version, arch):
         if version.isdigit():
             int_version = int(version)
         if int_version == 0 or int_version >= 9:
-            os_name = _ubuntu_osname(arch, "20.04", major_llvm_version, llvm_version)
+            if major_llvm_version == 18:
+                os_name = _ubuntu_osname(arch, "18.04", major_llvm_version, llvm_version)
+            else:
+                os_name = _ubuntu_osname(arch, "20.04", major_llvm_version, llvm_version)
         elif int_version == 8 and major_llvm_version < 7:
             os_name = "linux-gnu-debian8"
     elif ((distname == "fedora" and int(version) >= 27) or
@@ -200,10 +210,27 @@ def _resolve_version_for_suse(major_llvm_version, llvm_version):
     return os_name
 
 def llvm_release_name(rctx, llvm_version):
-    (os, version, arch) = _os_version_arch(rctx)
-    if os == "darwin":
-        return _darwin(llvm_version, arch)
-    elif os == "windows":
-        return _windows(llvm_version, arch)
+    major_llvm_version = _major_llvm_version(llvm_version)
+    if major_llvm_version >= 19:
+        arch = {
+            "aarch64": "ARM64",
+            "x86_64": "X64",
+        }[_arch(rctx)]
+        os = {
+            "darwin": "macOS",
+            "linux": "Linux",
+            "windows": "Windows",
+        }[_os(rctx)]
+        return "LLVM-{llvm_version}-{os}-{arch}.tar.xz".format(
+            llvm_version = llvm_version,
+            arch = arch,
+            os = os,
+        )
     else:
-        return _linux(llvm_version, os, version, arch)
+        (os, version, arch) = _os_version_arch(rctx)
+        if os == "darwin":
+            return _darwin(llvm_version, arch)
+        elif os == "windows":
+            return _windows(llvm_version, arch)
+        else:
+            return _linux(llvm_version, os, version, arch)

@@ -37,9 +37,12 @@ if [[ -f %{toolchain_path_prefix}bin/clang ]]; then
 elif [[ ${BASH_SOURCE[0]} == "/"* ]]; then
   # Some consumers of `CcToolchainConfigInfo` (e.g. `cmake` from rules_foreign_cc)
   # change CWD and call $CC (this script) with its absolute path.
-  # For cases like this, we'll try to find `clang` through an absolute path.
+  # the execroot (i.e. `cmake` from `rules_foreign_cc`) and call CC . For cases like this,
+  # we'll try to find `clang` relative to this script.
   # This script is at _execroot_/external/_repo_name_/bin/cc_wrapper.sh
-  execroot_path="${BASH_SOURCE[0]%/*/*/*/*}/"
+  execroot_path="${BASH_SOURCE[0]%/*/*/*/*}"
+  clang="${execroot_path}/%{toolchain_path_prefix}bin/clang"
+  exec "${clang}" "${@}"
 else
   echo >&2 "ERROR: could not find clang; PWD=\"${PWD}\"; PATH=\"${PATH}\"."
   exit 5

@@ -37,6 +37,19 @@ LLVM_VERSIONS = {
 
 llvm_toolchain(
     name = "llvm_toolchain",
+    cxx_standard = {"": "c++17"},
+    extra_target_compatible_with = {
+        "": ["@//:cxx17"],
+    },
+    llvm_versions = LLVM_VERSIONS,
+)
+
+llvm_toolchain(
+    name = "llvm_toolchain_cxx20",
+    cxx_standard = {"": "c++20"},
+    extra_target_compatible_with = {
+        "": ["@//:cxx20"],
+    },
     llvm_versions = LLVM_VERSIONS,
 )
 
@@ -74,6 +87,10 @@ llvm_toolchain(
 load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
 
 llvm_register_toolchains()
+
+load("@llvm_toolchain_cxx20//:toolchains.bzl", llvm_register_toolchains_cxx20 = "llvm_register_toolchains")
+
+llvm_register_toolchains_cxx20()
 
 ## Toolchain example with absolute paths; tested in GitHub CI.
 llvm_toolchain(
@@ -145,17 +162,17 @@ llvm_toolchain(
 
 http_archive(
     name = "com_google_absl",
-    sha256 = "733726b8c3a6d39a4120d7e45ea8b41a434cdacde401cba500f14236c49b39dc",
-    strip_prefix = "abseil-cpp-20240116.2",
-    urls = ["https://github.com/abseil/abseil-cpp/releases/download/20240116.2/abseil-cpp-20240116.2.tar.gz"],
+    sha256 = "f50e5ac311a81382da7fa75b97310e4b9006474f9560ac46f54a9967f07d4ae3",
+    strip_prefix = "abseil-cpp-20240722.0",
+    urls = ["https://github.com/abseil/abseil-cpp/releases/download/20240722.0/abseil-cpp-20240722.0.tar.gz"],
 )
 
 # As a test dep of com_google_absl.
 http_archive(
     name = "com_google_googletest",
-    sha256 = "8ad598c73ad796e0d8280b082cebd82a630d73e73cd3c70057938a6501bba5d7",
-    strip_prefix = "googletest-1.14.0",
-    urls = ["https://github.com/google/googletest/archive/v1.14.0.tar.gz"],
+    sha256 = "7b42b4d6ed48810c5362c265a17faebe90dc2373c885e5216439d37927f02926",
+    strip_prefix = "googletest-1.15.2",
+    urls = ["https://github.com/google/googletest/archive/v1.15.2.tar.gz"],
 )
 
 http_archive(
@@ -168,10 +185,10 @@ http_archive(
 
 http_archive(
     name = "io_bazel_rules_go",
-    sha256 = "33acc4ae0f70502db4b893c9fc1dd7a9bf998c23e7ff2c4517741d4049a976f8",
+    sha256 = "d93ef02f1e72c82d8bb3d5169519b36167b33cf68c252525e3b9d3d5dd143de7",
     urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.48.0/rules_go-v0.48.0.zip",
-        "https://github.com/bazelbuild/rules_go/releases/download/v0.48.0/rules_go-v0.48.0.zip",
+        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.49.0/rules_go-v0.49.0.zip",
+        "https://github.com/bazelbuild/rules_go/releases/download/v0.49.0/rules_go-v0.49.0.zip",
     ],
 )
 
@@ -188,8 +205,8 @@ go_download_sdk(
 
 http_archive(
     name = "rules_rust",
-    sha256 = "f9b59be3bc20d157212000da1ede8be4399ad869fe439f3d9f3fcc29c4e2fa5a",
-    urls = ["https://github.com/bazelbuild/rules_rust/releases/download/0.45.1/rules_rust-v0.45.1.tar.gz"],
+    sha256 = "dd006b77221d59e4d141207c0e7adf11b1fb60d1440b8fca03bf925617932a60",
+    urls = ["https://github.com/bazelbuild/rules_rust/releases/download/0.49.3/rules_rust-v0.49.3.tar.gz"],
 )
 
 load("@rules_rust//rust:repositories.bzl", "rules_rust_dependencies", "rust_register_toolchains")
@@ -203,9 +220,9 @@ rust_register_toolchains()
 
 http_archive(
     name = "rules_foreign_cc",
-    sha256 = "476303bd0f1b04cc311fc258f1708a5f6ef82d3091e53fd1977fa20383425a6a",
-    strip_prefix = "rules_foreign_cc-0.10.1",
-    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/0.10.1.tar.gz",
+    sha256 = "4b33d62cf109bcccf286b30ed7121129cc34cf4f4ed9d8a11f38d9108f40ba74",
+    strip_prefix = "rules_foreign_cc-0.11.1",
+    url = "https://github.com/bazelbuild/rules_foreign_cc/archive/0.11.1.tar.gz",
 )
 
 load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
@@ -230,3 +247,16 @@ http_archive(
         "https://ftp.pcre.org/pub/pcre/pcre-8.43.tar.gz",
     ],
 )
+
+http_archive(
+    name = "platforms",
+    sha256 = "218efe8ee736d26a3572663b374a253c012b716d8af0c07e842e82f238a0a7ee",
+    urls = [
+        "https://mirror.bazel.build/github.com/bazelbuild/platforms/releases/download/0.0.10/platforms-0.0.10.tar.gz",
+        "https://github.com/bazelbuild/platforms/releases/download/0.0.10/platforms-0.0.10.tar.gz",
+    ],
+)
+
+load("@platforms//host:extension.bzl", "host_platform_repo")
+
+host_platform_repo(name = "host_platform")
